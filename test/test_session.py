@@ -4,14 +4,6 @@ from typing import List
 from memproxy import Session
 
 
-class TestSample(unittest.TestCase):
-    def test_hello(self) -> None:
-        self.assertEqual('3', '3')
-
-    def test_tung(self) -> None:
-        self.assertEqual(5, 5)
-
-
 class TestSession(unittest.TestCase):
     def test_simple(self) -> None:
         calls = []
