@@ -27,7 +27,7 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    package_dir={"": "src"},
-    packages=setuptools.find_packages(where="src"),
+    package_dir={"": "memproxy"},
+    packages=setuptools.find_packages(where="memproxy"),
     python_requires=">=3.8"
 )
