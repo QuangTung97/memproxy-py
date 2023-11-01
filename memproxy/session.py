@@ -9,12 +9,16 @@ class Session:
     def __init__(self):
         self._next_calls = []
 
-    def add_next_call(self, fn: NextCallFunc):
+    def add_next_call(self, fn: NextCallFunc) -> None:
         self._next_calls.append(fn)
 
-    def execute(self):
-        call_list = self._next_calls
-        self._next_calls = []
+    def execute(self) -> None:
+        while True:
+            call_list = self._next_calls
+            self._next_calls = []
 
-        for fn in call_list:
-            fn()
+            if len(call_list) == 0:
+                return
+
+            for fn in call_list:
+                fn()

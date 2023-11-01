@@ -1,4 +1,6 @@
-.PHONY: lint test
+.PHONY: all lint test
+
+all: lint test
 
 lint:
 	mypy .
