@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import logging
 from dataclasses import dataclass
 from typing import Generic, TypeVar, Callable, Any
 
@@ -67,6 +68,10 @@ class _ItemState(Generic[T, K]):
 
     def _handle_fill_fn(self):
         self.result = self._fill_fn()
+
+        if self.cas <= 0:
+            return
+
         self.sess.add_next_call(self._handle_set_back)
 
     def _handle_filling(self):
@@ -77,13 +82,19 @@ class _ItemState(Generic[T, K]):
         get_resp = self.lease_get_fn()
 
         if get_resp.status == LeaseGetStatus.FOUND:
-            # TODO Handle Exception
-            self.result = self._codec.decode(get_resp.data)
-            return
+            try:
+                self.result = self._codec.decode(get_resp.data)
+                return
+            except Exception as e:
+                get_resp.error = f'Decode error. {str(e)}'
 
         if get_resp.status == LeaseGetStatus.LEASE_GRANTED:
             self.cas = get_resp.cas
-            self._handle_filling()
+        else:
+            logging.error('Item get error. %s', get_resp.error)
+            self.cas = 0
+
+        self._handle_filling()
 
 
 class Item(Generic[T, K]):

@@ -7,7 +7,7 @@ from typing import List
 
 import redis
 
-from memproxy import Item, RedisClient, Promise, new_json_codec
+from memproxy import Item, RedisClient, Promise, new_json_codec, ItemCodec
 from memproxy import Pipeline, Session, DeleteResponse, LeaseSetResponse, LeaseGetResponse
 
 
@@ -160,6 +160,68 @@ class TestItemIntegration(unittest.TestCase):
         self.assertEqual(UserTest(id=23, name='user-data:23', age=91), user_fn3())
 
         self.assertEqual([21, 22, 23, 21, 22, 23], self.fill_keys)
+
+    def test_get_decode_error(self) -> None:
+        codec: ItemCodec[UserTest] = new_json_codec(UserTest)
+
+        def decode_fn(data: bytes) -> UserTest:
+            raise ValueError('can not decode')
+
+        codec.decode = decode_fn
+
+        it = Item[UserTest, int](
+            pipe=self.pipe,
+            key_fn=lambda user_id: f'user:{user_id}',
+            filler=self.filler_func,
+            codec=codec,
+        )
+
+        user_fn = it.get(21)
+        self.assertEqual(UserTest(id=21, name='user-data:21', age=81), user_fn())
+
+        self.assertEqual(1, len(self.pipe.set_inputs))
+        self.assertEqual('user:21', self.pipe.set_inputs[0].key)
+
+        # Get Again
+        user_fn = it.get(21)
+        self.assertEqual(UserTest(id=21, name='user-data:21', age=81), user_fn())
+
+
+class TestItemRedisError(unittest.TestCase):
+    fill_keys: List[int]
+    age: int
+    pipe: CapturedPipeline
+
+    def setUp(self) -> None:
+        self.redis_client = redis.Redis(port=6400)
+        c = RedisClient(self.redis_client)
+
+        self.pipe = CapturedPipeline(c.pipeline())
+
+        self.fill_keys = []
+
+        self.it = Item[UserTest, int](
+            pipe=self.pipe,
+            key_fn=lambda user_id: f'user:{user_id}',
+            filler=self.filler_func,
+            codec=new_json_codec(UserTest),
+        )
+        self.age = 81
+
+    def filler_func(self, key: int) -> Promise[UserTest]:
+        self.fill_keys.append(key)
+        return lambda: UserTest(id=key, name=f'user-data:{key}', age=self.age)
+
+    def test_single_key(self) -> None:
+        it = self.it
+
+        user_fn = it.get(21)
+        u = user_fn()
+
+        self.assertEqual(UserTest(id=21, name='user-data:21', age=81), u)
+
+        self.assertEqual([21], self.fill_keys)
+        self.assertEqual([], self.pipe.set_inputs)
 
 
 class TestItemBenchmark(unittest.TestCase):
