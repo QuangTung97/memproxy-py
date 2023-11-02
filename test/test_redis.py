@@ -279,3 +279,51 @@ class TestRedisClient(unittest.TestCase):
         sess.execute()
 
         self.assertEqual([21, 22], calls)
+
+    def test_flush_script_in_between(self) -> None:
+        c: CacheClient = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+
+        self.redis_client.set('__next_cas', 130)
+
+        fn1 = pipe.lease_get('key01')
+        resp = fn1()
+
+        self.assertEqual(LeaseGetResponse(
+            status=LeaseGetStatus.LEASE_GRANTED,
+            data=b'',
+            cas=131,
+        ), resp)
+
+        self.redis_client.script_flush()
+
+        pipe.delete('key01')()
+
+        # Get Again
+        fn1 = pipe.lease_get('key01')
+        resp = fn1()
+
+        self.assertEqual(LeaseGetResponse(
+            status=LeaseGetStatus.LEASE_GRANTED,
+            data=b'',
+            cas=132,
+        ), resp)
+
+
+class TestRedisClientError(unittest.TestCase):
+    def setUp(self):
+        self.redis_client = redis.Redis(port=6400)
+
+    def test_lease_get(self) -> None:
+        c: CacheClient = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+
+        fn1 = pipe.lease_get('key01')
+        resp = fn1()
+
+        self.assertEqual(LeaseGetResponse(
+            status=LeaseGetStatus.ERROR,
+            data=b'',
+            cas=0,
+            error='Redis: Error 111 connecting to localhost:6400. Connection refused.'
+        ), resp)

@@ -6,6 +6,7 @@ from typing import List, Optional, Union
 
 import redis
 from redis.commands.core import Script
+from redis.exceptions import RedisError
 
 from .memproxy import LeaseGetStatus, LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from .memproxy import Pipeline, Promise
@@ -66,11 +67,11 @@ class SetInput:
 
 class RedisPipelineState:
     _pipe: RedisPipeline
-
     completed: bool
 
     _keys: List[str]
     get_result: List[bytes]
+    get_error: Optional[str]
 
     _set_inputs: List[SetInput]
     set_result: List[bytes]
@@ -79,10 +80,13 @@ class RedisPipelineState:
 
     def __init__(self, pipe: RedisPipeline):
         self._pipe = pipe
-        self._keys = []
         self.completed = False
+
+        self._keys = []
         self._set_inputs = []
         self._delete_keys = []
+
+        self.get_error = None
 
     def add_get_op(self, key: str) -> int:
         index = len(self._keys)
@@ -101,7 +105,10 @@ class RedisPipelineState:
 
     def execute(self) -> None:
         if len(self._keys) > 0:
-            self.get_result = self._pipe.get_script(keys=self._keys, client=self._pipe.client)
+            try:
+                self.get_result = self._pipe.get_script(keys=self._keys, client=self._pipe.client)
+            except RedisError as e:
+                self.get_error = str(e)
 
         if len(self._set_inputs) > 0:
             keys = [i.key for i in self._set_inputs]
@@ -164,6 +171,14 @@ class RedisPipeline:
 
         def lease_get_fn() -> LeaseGetResponse:
             self._execute(state)
+
+            if state.get_error is not None:
+                return LeaseGetResponse(
+                    status=LeaseGetStatus.ERROR,
+                    cas=0,
+                    data=b'',
+                    error=f'Redis: {state.get_error}'
+                )
 
             get_resp = state.get_result[index]
             if get_resp.startswith(CAS_PREFIX):
