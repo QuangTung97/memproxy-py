@@ -132,3 +132,25 @@ class TestRedisClient(unittest.TestCase):
 
         resp = self.redis_client.get('key01')
         self.assertEqual(None, resp)
+
+    def test_get_delete_then_set(self) -> None:
+        c = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+
+        fn1 = pipe.lease_get('key01')
+        resp = fn1()
+
+        delete_fn1 = pipe.delete('key01')
+        delete_fn1()
+
+        set_fn1 = pipe.lease_set('key01', resp.cas, b'value01')
+        set_fn1()
+
+        fn2 = pipe.lease_get('key01')
+        resp = fn2()
+
+        self.assertEqual(LeaseGetResponse(
+            status=LeaseGetStatus.LEASE_GRANTED,
+            data=b'',
+            cas=2,
+        ), resp)
