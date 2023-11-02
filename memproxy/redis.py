@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import random
 from dataclasses import dataclass
 from typing import List, Optional, Union
@@ -63,6 +65,8 @@ class SetInput:
 
 
 class RedisPipelineState:
+    _pipe: RedisPipeline
+
     completed: bool
 
     _keys: List[str]
@@ -73,7 +77,8 @@ class RedisPipelineState:
 
     _delete_keys: List[str]
 
-    def __init__(self):
+    def __init__(self, pipe: RedisPipeline):
+        self._pipe = pipe
         self._keys = []
         self.completed = False
         self._set_inputs = []
@@ -94,9 +99,9 @@ class RedisPipelineState:
         self._delete_keys.append(key)
         return index
 
-    def execute(self, get_script: Script, set_script: Script, client: redis.Redis):
+    def execute(self) -> None:
         if len(self._keys) > 0:
-            self.get_result = get_script(keys=self._keys, client=client)
+            self.get_result = self._pipe.get_script(keys=self._keys, client=self._pipe.client)
 
         if len(self._set_inputs) > 0:
             keys = [i.key for i in self._set_inputs]
@@ -107,10 +112,10 @@ class RedisPipelineState:
                 args.append(i.val)
                 args.append(i.ttl)
 
-            self.set_result = set_script(keys=keys, args=args, client=client)
+            self.set_result = self._pipe.set_script(keys=keys, args=args, client=self._pipe.client)
 
         if len(self._delete_keys):
-            client.delete(*self._delete_keys)
+            self._pipe.client.delete(*self._delete_keys)
 
         self.completed = True
 
@@ -120,9 +125,11 @@ VAL_PREFIX = b'val:'
 
 
 class RedisPipeline:
-    _client: redis.Redis
-    _get_script: Script
-    _set_script: Script
+    client: redis.Redis
+    get_script: Script
+    set_script: Script
+
+    _sess: Session
 
     _min_ttl: int
     _max_ttl: int
@@ -130,9 +137,11 @@ class RedisPipeline:
     _state: Optional[RedisPipelineState]
 
     def __init__(self, r: redis.Redis, get_script: Script, set_script: Script, min_ttl: int, max_ttl: int):
-        self._client = r
-        self._get_script = get_script
-        self._set_script = set_script
+        self.client = r
+        self.get_script = get_script
+        self.set_script = set_script
+
+        self._sess = Session()
 
         self._min_ttl = min_ttl
         self._max_ttl = max_ttl
@@ -141,12 +150,12 @@ class RedisPipeline:
 
     def _get_state(self) -> RedisPipelineState:
         if self._state is None:
-            self._state = RedisPipelineState()
+            self._state = RedisPipelineState(self)
         return self._state
 
     def _execute(self, state: RedisPipelineState):
         if not state.completed:
-            state.execute(self._get_script, self._set_script, self._client)
+            state.execute()
             self._state = None
 
     def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
@@ -208,7 +217,7 @@ class RedisPipeline:
         return delete_fn
 
     def lower_session(self) -> Session:
-        raise NotImplementedError()
+        return self._sess
 
     def finish(self) -> None:
         if self._state is not None:

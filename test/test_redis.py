@@ -264,3 +264,18 @@ class TestRedisClient(unittest.TestCase):
             data=b'hello01',
             cas=0,
         ), resp)
+
+    def test_get_lower_session(self) -> None:
+        c: CacheClient = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+
+        sess = pipe.lower_session()
+
+        calls = []
+
+        sess.add_next_call(lambda: calls.append(21))
+        sess.add_next_call(lambda: calls.append(22))
+
+        sess.execute()
+
+        self.assertEqual([21, 22], calls)
