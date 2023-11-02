@@ -193,7 +193,8 @@ class RedisPipeline:
         raise NotImplementedError()
 
     def finish(self) -> None:
-        pass
+        if self._state is not None:
+            self._execute(self._state)
 
 
 class RedisClient:

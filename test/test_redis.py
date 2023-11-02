@@ -154,3 +154,22 @@ class TestRedisClient(unittest.TestCase):
             data=b'',
             cas=2,
         ), resp)
+
+    def test_get_set_then_finish(self) -> None:
+        c = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+
+        fn1 = pipe.lease_get('key01')
+        resp = fn1()
+
+        pipe.lease_set('key01', resp.cas, b'value01')
+        pipe.finish()
+
+        resp = self.redis_client.get('key01')
+        self.assertEqual(b'val:value01', resp)
+
+    def test_finish_empty(self) -> None:
+        c = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+        pipe.finish()
+
