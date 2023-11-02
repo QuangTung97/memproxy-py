@@ -65,3 +65,13 @@ class TestRedisClient(unittest.TestCase):
 
         set_fn1 = pipe.lease_set('key01', resp.cas, b'some-data')
         set_fn1()
+
+        fn2 = pipe.lease_get('key01')
+        resp = fn2()
+
+        self.assertEqual(LeaseGetResponse(
+            status=LeaseGetStatus.FOUND,
+            data=b'some-data',
+            cas=0,
+        ), resp)
+
