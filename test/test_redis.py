@@ -249,3 +249,18 @@ class TestRedisClient(unittest.TestCase):
             cas=0,
             error='value "abc" is not a number',
         ), resp)
+
+    def test_get_without_prefix(self) -> None:
+        c: CacheClient = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+
+        self.redis_client.set('key01', b'hello01')
+
+        fn1 = pipe.lease_get('key01')
+        resp = fn1()
+
+        self.assertEqual(LeaseGetResponse(
+            status=LeaseGetStatus.FOUND,
+            data=b'hello01',
+            cas=0,
+        ), resp)

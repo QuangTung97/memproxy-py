@@ -175,7 +175,7 @@ class RedisPipeline:
                 )
             else:
                 get_val = get_resp
-                if len(get_val) > len(VAL_PREFIX):
+                if get_val.startswith(VAL_PREFIX):
                     get_val = get_resp[len(VAL_PREFIX):]
 
                 return LeaseGetResponse(
