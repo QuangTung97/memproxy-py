@@ -38,10 +38,13 @@ class Pipeline(Protocol):
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
         raise NotImplementedError()
 
-    def delete(self) -> Promise[DeleteResponse]:
+    def delete(self, key: str) -> Promise[DeleteResponse]:
         raise NotImplementedError()
 
     def lower_session(self) -> Session:
+        raise NotImplementedError()
+
+    def finish(self) -> None:
         raise NotImplementedError()
 
 

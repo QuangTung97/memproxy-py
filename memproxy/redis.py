@@ -68,10 +68,13 @@ class RedisPipelineState:
     _set_inputs: List[SetInput]
     set_result: List[bytes]
 
+    _delete_keys: List[str]
+
     def __init__(self):
         self._keys = []
         self.completed = False
         self._set_inputs = []
+        self._delete_keys = []
 
     def add_get_op(self, key: str) -> int:
         index = len(self._keys)
@@ -81,6 +84,11 @@ class RedisPipelineState:
     def add_set_op(self, key: str, cas: int, val: bytes) -> int:
         index = len(self._set_inputs)
         self._set_inputs.append(SetInput(key=key, cas=cas, val=val))
+        return index
+
+    def add_delete_op(self, key: str) -> int:
+        index = len(self._delete_keys)
+        self._delete_keys.append(key)
         return index
 
     def execute(self, get_script: Script, set_script: Script, client: redis.Redis):
@@ -96,6 +104,9 @@ class RedisPipelineState:
                 args.append(i.val)
 
             self.set_result = set_script(keys=keys, args=args, client=client)
+
+        if len(self._delete_keys):
+            client.delete(*self._delete_keys)
 
         self.completed = True
 
@@ -168,11 +179,21 @@ class RedisPipeline:
 
         return lease_set_fn
 
-    def delete(self) -> Promise[DeleteResponse]:
-        raise NotImplementedError()
+    def delete(self, key: str) -> Promise[DeleteResponse]:
+        state = self._get_state()
+        state.add_delete_op(key)
+
+        def delete_fn() -> DeleteResponse:
+            self._execute(state)
+            return DeleteResponse()
+
+        return delete_fn
 
     def lower_session(self) -> Session:
         raise NotImplementedError()
+
+    def finish(self) -> None:
+        pass
 
 
 class RedisClient:
