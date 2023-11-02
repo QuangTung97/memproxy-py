@@ -1,3 +1,4 @@
+import datetime
 import unittest
 from dataclasses import dataclass
 from typing import List
@@ -54,3 +55,30 @@ class TestItemIntegration(unittest.TestCase):
         self.assertEqual(UserTest(id=21, name='user01', age=81), u)
 
         self.assertEqual('user:23', it.compute_key_name(23))
+
+    def run_multi_get(self) -> None:
+        start = datetime.datetime.now()
+
+        it = Item[UserTest, int](
+            pipe=self.pipe,
+            key_fn=lambda user_id: f'user:{user_id}',
+            filler=self.filler_func,
+            codec=new_json_codec(UserTest),
+        )
+
+        fn_list: List[Promise[UserTest]] = []
+        for i in range(100):
+            fn = it.get(i)
+            fn_list.append(fn)
+
+        for fn in fn_list:
+            fn()
+
+        duration = datetime.datetime.now() - start
+        print(f'Duration: {duration.microseconds / 1000.0} ms')
+
+    def test_multi(self) -> None:
+        print("")
+        print("Get 100 Keys in Batch")
+        for i in range(10):
+            self.run_multi_get()
