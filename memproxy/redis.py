@@ -21,7 +21,7 @@ for i = 1,#KEYS do
     else
         local cas = redis.call('INCR', '__next_cas')
         local cas_str = 'cas:' .. cas
-        redis.call('SET', k, cas_str, 'EX', 30)
+        redis.call('SET', k, cas_str, 'EX', 3)
         result[i] = cas_str
     end
 end
@@ -135,8 +135,11 @@ class RedisPipeline:
 
             get_resp = state.get_result[index]
             if get_resp.startswith(CAS_PREFIX):
-                # TODO Check error
-                cas = int(get_resp[len(CAS_PREFIX):])
+                num_str = get_resp[len(CAS_PREFIX):].decode()
+                if num_str.isnumeric():
+                    pass  # TODO Error
+
+                cas = int(num_str)
                 return LeaseGetResponse(
                     status=LeaseGetStatus.LEASE_GRANTED,
                     cas=cas,
