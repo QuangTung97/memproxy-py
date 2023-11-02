@@ -233,3 +233,19 @@ class TestRedisClient(unittest.TestCase):
 
         delete_fn1()
         delete_fn2()
+
+    def test_get_incorrect_cas(self) -> None:
+        c: CacheClient = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+
+        self.redis_client.set('key01', b'cas:abc')
+
+        fn1 = pipe.lease_get('key01')
+        resp = fn1()
+
+        self.assertEqual(LeaseGetResponse(
+            status=LeaseGetStatus.ERROR,
+            data=b'',
+            cas=0,
+            error='value "abc" is not a number',
+        ), resp)

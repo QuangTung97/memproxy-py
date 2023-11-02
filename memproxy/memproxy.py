@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, Callable, TypeVar
+from typing import Protocol, Callable, TypeVar, Optional
 
 from .session import Session
 
@@ -12,6 +12,7 @@ Promise = Callable[[], T]
 class LeaseGetStatus(Enum):
     FOUND = 1
     LEASE_GRANTED = 2
+    ERROR = 3
 
 
 @dataclass
@@ -19,6 +20,7 @@ class LeaseGetResponse:
     status: LeaseGetStatus
     data: bytes
     cas: int
+    error: Optional[str] = None
 
 
 @dataclass

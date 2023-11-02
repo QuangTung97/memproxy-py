@@ -159,14 +159,19 @@ class RedisPipeline:
             get_resp = state.get_result[index]
             if get_resp.startswith(CAS_PREFIX):
                 num_str = get_resp[len(CAS_PREFIX):].decode()
-                if num_str.isnumeric():
-                    pass  # TODO Error
+                if not num_str.isnumeric():
+                    return LeaseGetResponse(
+                        status=LeaseGetStatus.ERROR,
+                        cas=0,
+                        data=b'',
+                        error=f'value "{num_str}" is not a number'
+                    )
 
                 cas = int(num_str)
                 return LeaseGetResponse(
                     status=LeaseGetStatus.LEASE_GRANTED,
                     cas=cas,
-                    data=bytes(),
+                    data=b'',
                 )
             else:
                 get_val = get_resp
