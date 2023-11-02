@@ -183,3 +183,45 @@ class TestRedisClient(unittest.TestCase):
 
         resp = self.redis_client.get('key01')
         self.assertEqual(b'val:value01', resp)
+
+    def test_get_then_get_multiple_keys(self) -> None:
+        c = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+
+        fn1 = pipe.lease_get('key01')
+        fn2 = pipe.lease_get('key02')
+
+        resp1 = fn1()
+        resp2 = fn2()
+
+        set_fn1 = pipe.lease_set('key01', resp1.cas, b'value01')
+        set_fn2 = pipe.lease_set('key02', resp2.cas, b'value02')
+
+        set_fn1()
+        set_fn2()
+
+        # Get Again
+        fn1 = pipe.lease_get('key01')
+        fn2 = pipe.lease_get('key02')
+
+        resp1 = fn1()
+        resp2 = fn2()
+
+        self.assertEqual(LeaseGetResponse(
+            status=LeaseGetStatus.FOUND,
+            data=b'value01',
+            cas=0,
+        ), resp1)
+
+        self.assertEqual(LeaseGetResponse(
+            status=LeaseGetStatus.FOUND,
+            data=b'value02',
+            cas=0,
+        ), resp2)
+
+        # Delete Multi Keys
+        delete_fn1 = pipe.delete('key01')
+        delete_fn2 = pipe.delete('key02')
+
+        delete_fn1()
+        delete_fn2()
