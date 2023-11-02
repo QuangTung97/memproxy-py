@@ -1,4 +1,4 @@
-.PHONY: all lint test
+.PHONY: all lint test coverage html
 
 all: lint test
 
@@ -6,4 +6,10 @@ lint:
 	mypy .
 
 test:
-	python3 -m unittest
+	coverage run --omit="*/dist-packages/*" -m unittest
+
+coverage:
+	coverage report -m
+
+html:
+	coverage html

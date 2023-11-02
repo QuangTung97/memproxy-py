@@ -4,8 +4,8 @@ from typing import List, Optional, Union
 import redis
 from redis.commands.core import Script
 
-from .memproxy import CacheClient, Pipeline, Promise
 from .memproxy import LeaseGetStatus, LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from .memproxy import Pipeline, Promise
 from .session import Session
 
 LEASE_GET_SCRIPT = """
@@ -196,6 +196,12 @@ class RedisPipeline:
         if self._state is not None:
             self._execute(self._state)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.finish()
+
 
 class RedisClient:
     _client: redis.Redis
@@ -209,7 +215,3 @@ class RedisClient:
 
     def pipeline(self) -> Pipeline:
         return RedisPipeline(self._client, self._get_script, self._set_script)
-
-
-def _redis_client_type_check(redis_client: RedisClient):
-    _client: CacheClient = redis_client

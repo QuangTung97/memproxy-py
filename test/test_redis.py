@@ -2,7 +2,7 @@ import unittest
 
 import redis
 
-from memproxy import RedisClient, LeaseGetResponse, LeaseGetStatus
+from memproxy import CacheClient, RedisClient, LeaseGetResponse, LeaseGetStatus
 
 
 class TestRedisClient(unittest.TestCase):
@@ -12,7 +12,7 @@ class TestRedisClient(unittest.TestCase):
         self.redis_client.script_flush()
 
     def test_get_single_key(self) -> None:
-        c = RedisClient(self.redis_client)
+        c: CacheClient = RedisClient(self.redis_client)
         pipe = c.pipeline()
 
         fn1 = pipe.lease_get('key01')
@@ -173,3 +173,13 @@ class TestRedisClient(unittest.TestCase):
         pipe = c.pipeline()
         pipe.finish()
 
+    def test_using_with(self) -> None:
+        c = RedisClient(self.redis_client)
+        with c.pipeline() as pipe:
+            fn1 = pipe.lease_get('key01')
+            resp = fn1()
+
+            pipe.lease_set('key01', resp.cas, b'value01')
+
+        resp = self.redis_client.get('key01')
+        self.assertEqual(b'val:value01', resp)

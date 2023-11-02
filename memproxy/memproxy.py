@@ -47,6 +47,12 @@ class Pipeline(Protocol):
     def finish(self) -> None:
         raise NotImplementedError()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.finish()
+
 
 class CacheClient(Protocol):
     def pipeline(self) -> Pipeline:
