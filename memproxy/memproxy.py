@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, Callable, TypeVar, Optional
@@ -34,26 +35,33 @@ class DeleteResponse:
 
 
 class Pipeline(Protocol):
+    @abstractmethod
     def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
-        raise NotImplementedError()
+        pass
 
+    @abstractmethod
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
-        raise NotImplementedError()
+        pass
 
+    @abstractmethod
     def delete(self, key: str) -> Promise[DeleteResponse]:
-        raise NotImplementedError()
+        pass
 
+    @abstractmethod
     def lower_session(self) -> Session:
-        raise NotImplementedError()
+        pass
 
+    @abstractmethod
     def finish(self) -> None:
-        raise NotImplementedError()
+        pass
 
+    @abstractmethod
     def __enter__(self):
-        return self
+        pass
 
+    @abstractmethod
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.finish()
+        pass
 
 
 class CacheClient(Protocol):
