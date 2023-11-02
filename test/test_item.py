@@ -8,6 +8,7 @@ from typing import List
 import redis
 
 from memproxy import Item, RedisClient, Promise, new_json_codec
+from memproxy import Pipeline, Session, DeleteResponse, LeaseSetResponse, LeaseGetResponse
 
 
 @dataclass
@@ -17,9 +18,51 @@ class UserTest:
     age: int
 
 
+@dataclass
+class SetInput:
+    key: str
+    cas: int
+    data: bytes
+
+
+class CapturedPipeline(Pipeline):
+    pipe: Pipeline
+    get_keys: List[str]
+    set_inputs: List[SetInput]
+
+    def __init__(self, pipe: Pipeline):
+        self.pipe = pipe
+        self.get_keys = []
+        self.set_inputs = []
+
+    def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
+        self.get_keys.append(key)
+        return self.pipe.lease_get(key)
+
+    def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
+        self.set_inputs.append(SetInput(key, cas, data))
+        return self.pipe.lease_set(key, cas, data)
+
+    def delete(self, key: str) -> Promise[DeleteResponse]:
+        return self.pipe.delete(key)
+
+    def lower_session(self) -> Session:
+        return self.pipe.lower_session()
+
+    def finish(self) -> None:
+        return self.pipe.finish()
+
+    def __enter__(self):
+        self.pipe.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.pipe.__exit__(exc_type, exc_val, exc_tb)
+
+
 class TestItemIntegration(unittest.TestCase):
     fill_keys: List[int]
     age: int
+    pipe: CapturedPipeline
 
     def setUp(self) -> None:
         self.redis_client = redis.Redis()
@@ -27,7 +70,7 @@ class TestItemIntegration(unittest.TestCase):
         self.redis_client.script_flush()
 
         c = RedisClient(self.redis_client)
-        self.pipe = c.pipeline()
+        self.pipe = CapturedPipeline(c.pipeline())
         self.addCleanup(self.pipe.finish)
 
         self.fill_keys = []
@@ -77,6 +120,12 @@ class TestItemIntegration(unittest.TestCase):
         self.assertEqual(UserTest(id=23, name='user-data:23', age=81), user_fn3())
 
         self.assertEqual([21, 22, 23], self.fill_keys)
+        self.assertEqual(['user:21', 'user:22', 'user:23'], self.pipe.get_keys)
+        self.assertListEqual([
+            SetInput('user:21', 1, b'{"id": 21, "name": "user-data:21", "age": 81}'),
+            SetInput('user:22', 2, b'{"id": 22, "name": "user-data:22", "age": 81}'),
+            SetInput('user:23', 3, b'{"id": 23, "name": "user-data:23", "age": 81}'),
+        ], self.pipe.set_inputs)
 
         # Get Again
         user_fn1 = it.get(21)
@@ -88,6 +137,7 @@ class TestItemIntegration(unittest.TestCase):
         self.assertEqual(UserTest(id=23, name='user-data:23', age=81), user_fn3())
 
         self.assertEqual([21, 22, 23], self.fill_keys)
+        self.assertEqual(['user:21', 'user:22', 'user:23'] * 2, self.pipe.get_keys)
 
         # Do Delete
         delete_fn1 = self.pipe.delete(it.compute_key_name(21))

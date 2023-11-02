@@ -77,6 +77,7 @@ class _ItemState(Generic[T, K]):
         get_resp = self.lease_get_fn()
 
         if get_resp.status == LeaseGetStatus.FOUND:
+            # TODO Handle Exception
             self.result = self._codec.decode(get_resp.data)
             return
 
