@@ -1,4 +1,4 @@
-.PHONY: all lint test coverage html item-profile
+.PHONY: all lint test coverage html item-profile build-dist upload
 
 all: lint test
 
@@ -16,3 +16,9 @@ html:
 
 item-profile:
 	python3 -m pstats test/item.stats
+
+build-dist:
+	python3 setup.py sdist
+
+upload:
+	twine upload dist/*

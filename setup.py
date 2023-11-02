@@ -8,7 +8,7 @@ setuptools.setup(
     name="memproxy",
     version="0.1.0",
     license="MIT",
-    keywords=["Redis", "key-value store", "database"],
+    keywords=["Redis", "key-value store", "caching"],
 
     author="quangtung97",
     author_email="quangtung29121997@gmail.com",
