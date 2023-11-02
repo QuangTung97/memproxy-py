@@ -26,12 +26,12 @@ class LeaseGetResponse:
 
 @dataclass
 class LeaseSetResponse:
-    pass
+    error: Optional[str] = None
 
 
 @dataclass
 class DeleteResponse:
-    pass
+    error: Optional[str] = None
 
 
 class Pipeline(Protocol):

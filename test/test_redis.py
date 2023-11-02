@@ -2,7 +2,7 @@ import unittest
 
 import redis
 
-from memproxy import CacheClient, RedisClient, LeaseGetResponse, LeaseGetStatus
+from memproxy import CacheClient, RedisClient, LeaseGetResponse, LeaseGetStatus, LeaseSetResponse, DeleteResponse
 
 
 class TestRedisClient(unittest.TestCase):
@@ -188,7 +188,7 @@ class TestRedisClient(unittest.TestCase):
         resp = self.redis_client.get('key01')
         self.assertEqual(b'val:value01', resp)
 
-    def test_get_then_get_multiple_keys(self) -> None:
+    def test_get_then_set_multiple_keys(self) -> None:
         c = RedisClient(self.redis_client)
         pipe = c.pipeline()
 
@@ -247,7 +247,7 @@ class TestRedisClient(unittest.TestCase):
             status=LeaseGetStatus.ERROR,
             data=b'',
             cas=0,
-            error='value "abc" is not a number',
+            error='Value "abc" is not a number',
         ), resp)
 
     def test_get_without_prefix(self) -> None:
@@ -325,5 +325,27 @@ class TestRedisClientError(unittest.TestCase):
             status=LeaseGetStatus.ERROR,
             data=b'',
             cas=0,
-            error='Redis: Error 111 connecting to localhost:6400. Connection refused.'
+            error='Redis Get: Error 111 connecting to localhost:6400. Connection refused.'
+        ), resp)
+
+    def test_lease_set(self) -> None:
+        c: CacheClient = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+
+        fn1 = pipe.lease_set('key01', 11, b'some-data')
+        resp = fn1()
+
+        self.assertEqual(LeaseSetResponse(
+            error='Redis Set: Error 111 connecting to localhost:6400. Connection refused.'
+        ), resp)
+
+    def test_delete(self) -> None:
+        c: CacheClient = RedisClient(self.redis_client)
+        pipe = c.pipeline()
+
+        fn1 = pipe.delete('key01')
+        resp = fn1()
+
+        self.assertEqual(DeleteResponse(
+            error='Redis Delete: Error 111 connecting to localhost:6400. Connection refused.'
         ), resp)
