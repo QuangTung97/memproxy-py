@@ -1,3 +1,4 @@
+import random
 from dataclasses import dataclass
 from typing import List, Optional, Union
 
@@ -37,11 +38,12 @@ for i = 1,#KEYS do
     
     local resp = redis.call('GET', k)
     
-    local cas_str = 'cas:' .. ARGV[i * 2 - 1]
-    local val = 'val:' .. ARGV[i * 2]
+    local cas_str = 'cas:' .. ARGV[i * 3 - 2]
+    local val = 'val:' .. ARGV[i * 3 - 1]
+    local ttl = ARGV[i * 3]
     
     if resp and resp == cas_str then
-        redis.call('SET', k, val, 'EX', 30)
+        redis.call('SET', k, val, 'EX', ttl)
         result[i] = 'OK'
     else
         result[i] = 'NF'
@@ -57,6 +59,7 @@ class SetInput:
     key: str
     cas: int
     val: bytes
+    ttl: int
 
 
 class RedisPipelineState:
@@ -81,9 +84,9 @@ class RedisPipelineState:
         self._keys.append(key)
         return index
 
-    def add_set_op(self, key: str, cas: int, val: bytes) -> int:
+    def add_set_op(self, key: str, cas: int, val: bytes, ttl: int) -> int:
         index = len(self._set_inputs)
-        self._set_inputs.append(SetInput(key=key, cas=cas, val=val))
+        self._set_inputs.append(SetInput(key=key, cas=cas, val=val, ttl=ttl))
         return index
 
     def add_delete_op(self, key: str) -> int:
@@ -102,6 +105,7 @@ class RedisPipelineState:
             for i in self._set_inputs:
                 args.append(i.cas)
                 args.append(i.val)
+                args.append(i.ttl)
 
             self.set_result = set_script(keys=keys, args=args, client=client)
 
@@ -119,12 +123,20 @@ class RedisPipeline:
     _client: redis.Redis
     _get_script: Script
     _set_script: Script
+
+    _min_ttl: int
+    _max_ttl: int
+
     _state: Optional[RedisPipelineState]
 
-    def __init__(self, r: redis.Redis, get_script: Script, set_script: Script):
+    def __init__(self, r: redis.Redis, get_script: Script, set_script: Script, min_ttl: int, max_ttl: int):
         self._client = r
         self._get_script = get_script
         self._set_script = set_script
+
+        self._min_ttl = min_ttl
+        self._max_ttl = max_ttl
+
         self._state = None
 
     def _get_state(self) -> RedisPipelineState:
@@ -171,7 +183,8 @@ class RedisPipeline:
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
         state = self._get_state()
-        state.add_set_op(key, cas, data)
+        ttl = random.randrange(self._min_ttl, self._max_ttl + 1)
+        state.add_set_op(key=key, cas=cas, val=data, ttl=ttl)
 
         def lease_set_fn() -> LeaseSetResponse:
             self._execute(state)
@@ -207,11 +220,21 @@ class RedisClient:
     _client: redis.Redis
     _get_script: Script
     _set_script: Script
+    _min_ttl: int
+    _max_ttl: int
 
-    def __init__(self, r: redis.Redis):
+    def __init__(self, r: redis.Redis, min_ttl=6 * 3600, max_ttl=12 * 3600):
         self._client = r
         self._get_script = self._client.register_script(LEASE_GET_SCRIPT)
         self._set_script = self._client.register_script(LEASE_SET_SCRIPT)
+        self._min_ttl = min_ttl
+        self._max_ttl = max_ttl
 
     def pipeline(self) -> Pipeline:
-        return RedisPipeline(self._client, self._get_script, self._set_script)
+        return RedisPipeline(
+            r=self._client,
+            get_script=self._get_script,
+            set_script=self._set_script,
+            min_ttl=self._min_ttl,
+            max_ttl=self._max_ttl,
+        )

@@ -57,7 +57,7 @@ class TestRedisClient(unittest.TestCase):
         ), resp2)
 
     def test_get_then_set(self) -> None:
-        c = RedisClient(self.redis_client)
+        c = RedisClient(self.redis_client, min_ttl=80, max_ttl=90)
         pipe = c.pipeline()
 
         fn1 = pipe.lease_get('key01')
@@ -74,6 +74,10 @@ class TestRedisClient(unittest.TestCase):
             data=b'some-data',
             cas=0,
         ), resp)
+
+        ttl = self.redis_client.ttl('key01')
+        self.assertGreater(ttl, 80 - 2)
+        self.assertLess(ttl, 90 + 2)
 
     def test_set_then_get(self) -> None:
         c = RedisClient(self.redis_client)
@@ -218,6 +222,10 @@ class TestRedisClient(unittest.TestCase):
             data=b'value02',
             cas=0,
         ), resp2)
+
+        ttl = self.redis_client.ttl('key01')
+        self.assertGreater(ttl, 3600 * 6 - 2)
+        self.assertLess(ttl, 3600 * 12 + 2)
 
         # Delete Multi Keys
         delete_fn1 = pipe.delete('key01')
