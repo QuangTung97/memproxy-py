@@ -36,34 +36,27 @@ class DeleteResponse:
 
 class Pipeline(Protocol):
     @abstractmethod
-    def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
-        pass
+    def lease_get(self, key: str) -> Promise[LeaseGetResponse]: pass
 
     @abstractmethod
-    def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
-        pass
+    def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]: pass
 
     @abstractmethod
-    def delete(self, key: str) -> Promise[DeleteResponse]:
-        pass
+    def delete(self, key: str) -> Promise[DeleteResponse]: pass
 
     @abstractmethod
-    def lower_session(self) -> Session:
-        pass
+    def lower_session(self) -> Session: pass
 
     @abstractmethod
-    def finish(self) -> None:
-        pass
+    def finish(self) -> None: pass
 
     @abstractmethod
-    def __enter__(self):
-        pass
+    def __enter__(self): pass
 
     @abstractmethod
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
+    def __exit__(self, exc_type, exc_val, exc_tb): pass
 
 
 class CacheClient(Protocol):
-    def pipeline(self) -> Pipeline:
-        raise NotImplementedError()
+    @abstractmethod
+    def pipeline(self) -> Pipeline: pass

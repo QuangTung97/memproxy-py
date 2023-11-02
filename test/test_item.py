@@ -47,3 +47,10 @@ class TestItemIntegration(unittest.TestCase):
 
         resp = self.redis_client.get('user:21')
         self.assertEqual(b'val:{"id": 21, "name": "user01", "age": 81}', resp)
+
+        # Get Again
+        user_fn = it.get(21)
+        u = user_fn()
+        self.assertEqual(UserTest(id=21, name='user01', age=81), u)
+
+        self.assertEqual('user:23', it.compute_key_name(23))
