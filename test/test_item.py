@@ -1,4 +1,6 @@
+import cProfile
 import datetime
+import os
 import unittest
 from dataclasses import dataclass
 from typing import List
@@ -56,6 +58,26 @@ class TestItemIntegration(unittest.TestCase):
 
         self.assertEqual('user:23', it.compute_key_name(23))
 
+
+class TestItemBenchmark(unittest.TestCase):
+    fill_keys: List[int]
+
+    def setUp(self) -> None:
+        self.redis_client = redis.Redis()
+        self.redis_client.flushall()
+        self.redis_client.script_flush()
+
+        c = RedisClient(self.redis_client)
+        self.pipe = c.pipeline()
+        self.addCleanup(self.pipe.finish)
+
+        self.fill_keys = []
+        self.total_duration = datetime.timedelta(0)
+
+    def filler_func(self, key: int) -> Promise[UserTest]:
+        self.fill_keys.append(key)
+        return lambda: UserTest(id=21, name='user01', age=81)
+
     def run_multi_get(self) -> None:
         start = datetime.datetime.now()
 
@@ -75,10 +97,25 @@ class TestItemIntegration(unittest.TestCase):
             fn()
 
         duration = datetime.datetime.now() - start
-        print(f'Duration: {duration.microseconds / 1000.0} ms')
+        self.total_duration += duration
 
-    def test_multi(self) -> None:
-        print("")
-        print("Get 100 Keys in Batch")
-        for i in range(10):
+    def test_run(self) -> None:
+        self.run_multi_get()
+        self.total_duration = datetime.timedelta(0)
+
+        num_loops = 10
+        for i in range(num_loops):
             self.run_multi_get()
+        print(f'AVG DURATION: {(self.total_duration / num_loops).microseconds / 1000.0}ms')
+
+    def test_run_with_profiler(self) -> None:
+        if not os.getenv("ENABLE_PROFILE"):
+            self.skipTest('Default not run')
+
+        with cProfile.Profile() as pr:
+            num_loops = 1000
+            for i in range(num_loops):
+                self.run_multi_get()
+
+            print("AVG DURATION:", (self.total_duration / num_loops).microseconds / 1000.0)
+            pr.dump_stats('item.stats')

@@ -1,4 +1,4 @@
-.PHONY: all lint test coverage html
+.PHONY: all lint test coverage html item-profile
 
 all: lint test
 
@@ -13,3 +13,6 @@ coverage:
 
 html:
 	coverage html
+
+item-profile:
+	python3 -m pstats test/item.stats
