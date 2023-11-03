@@ -114,27 +114,20 @@ class RedisPipelineState:
             self._execute_lease_get()
 
         if len(self._set_inputs) > 0:
-            keys = [i.key for i in self._set_inputs]
-
-            args: List[Union[int, bytes]] = []
-            for i in self._set_inputs:
-                args.append(i.cas)
-                args.append(i.val)
-                args.append(i.ttl)
-
-            self.set_result = self._pipe.set_script(keys=keys, args=args, client=self._pipe.client)
+            self._execute_lease_set()
 
         if len(self._delete_keys):
             self._pipe.client.delete(*self._delete_keys)
 
         self.completed = True
 
-    def _execute_lease_get(self):
-        if len(self._keys) <= self._pipe.max_keys_per_batch:
+    def _execute_lease_get(self) -> None:
+        batch_size = self._pipe.max_keys_per_batch
+
+        if len(self._keys) <= batch_size:
             self.get_result = self._pipe.get_script(keys=self._keys, client=self._pipe.client)
             return
 
-        batch_size = self._pipe.max_keys_per_batch
         with self._pipe.client.pipeline(transaction=False) as pipe:
             for n in range(0, len(self._keys), batch_size):
                 keys = self._keys[n: n + batch_size]
@@ -144,6 +137,35 @@ class RedisPipelineState:
         self.get_result = []
         for r in pipe_result:
             self.get_result.extend(r)
+
+    def _execute_lease_set(self) -> None:
+        batch_size = self._pipe.max_keys_per_batch
+
+        if len(self._set_inputs) <= batch_size:
+            self.set_result = self._execute_lease_set_inputs(self._set_inputs)
+            return
+
+        with self._pipe.client.pipeline(transaction=False) as pipe:
+            for n in range(0, len(self._set_inputs), batch_size):
+                inputs = self._set_inputs[n: n + batch_size]
+                self._execute_lease_set_inputs(inputs)
+
+            pipe_result = pipe.execute()
+
+        self.set_result = []
+        for r in pipe_result:
+            self.set_result.extend(r)
+
+    def _execute_lease_set_inputs(self, inputs: List[SetInput]) -> List[bytes]:
+        keys = [i.key for i in inputs]
+
+        args: List[Union[int, bytes]] = []
+        for i in inputs:
+            args.append(i.cas)
+            args.append(i.val)
+            args.append(i.ttl)
+
+        return self._pipe.set_script(keys=keys, args=args, client=self._pipe.client)
 
 
 CAS_PREFIX = b'cas:'

@@ -390,23 +390,36 @@ class TestRedisClientWithCapturing(unittest.TestCase):
         self.redis.flushall()
         self.redis.script_flush()
 
-    def test_get_single_key(self) -> None:
-        c: CacheClient = RedisClient(self.redis)
+    def test_get_and_set_single_key(self) -> None:
+        c: CacheClient = RedisClient(self.redis, min_ttl=70, max_ttl=70)
         pipe = c.pipeline()
 
         fn1 = pipe.lease_get('key01')
-        self.assertEqual(LeaseGetResponse(data=b'', cas=1, status=LeaseGetStatus.LEASE_GRANTED), fn1())
+        resp1 = fn1()
+        self.assertEqual(LeaseGetResponse(data=b'', cas=1, status=LeaseGetStatus.LEASE_GRANTED), resp1)
+
+        set_fn1 = pipe.lease_set('key01', resp1.cas, b'value01')
+        self.assertEqual(LeaseSetResponse(), set_fn1())
 
         self.assertEqual(2, len(self.redis.text_list))
 
         calls = self.redis.script_calls
-        self.assertEqual(1, len(calls))
+        self.assertEqual(2, len(calls))
 
         self.assertEqual(0, calls[0].index)
         self.assertDictEqual({
             'client': self.redis,
             'keys': ['key01'],
         }, calls[0].kwargs)
+
+        self.assertEqual(1, calls[1].index)
+        self.assertDictEqual({
+            'client': self.redis,
+            'keys': ['key01'],
+            'args': [
+                1, b'value01', 70,
+            ],
+        }, calls[1].kwargs)
 
     def test_get_multi_keys__exceed_max_batch(self) -> None:
         c: CacheClient = RedisClient(self.redis, max_keys_per_batch=3)
@@ -469,3 +482,56 @@ class TestRedisClientWithCapturing(unittest.TestCase):
         self.assertDictEqual({
             'keys': ['key01', 'key02', 'key03'],
         }, calls[2].kwargs)
+
+    def test_get_and_set_multi_keys__exceed_max_batch(self) -> None:
+        c: CacheClient = RedisClient(self.redis, max_keys_per_batch=3, min_ttl=70, max_ttl=70)
+        pipe = c.pipeline()
+
+        fn1 = pipe.lease_get('key01')
+        fn2 = pipe.lease_get('key02')
+        fn3 = pipe.lease_get('key03')
+        fn4 = pipe.lease_get('key04')
+
+        resp1 = fn1()
+        resp2 = fn2()
+        resp3 = fn3()
+        resp4 = fn4()
+
+        set_fn1 = pipe.lease_set('key01', resp1.cas, b'value01')
+        pipe.lease_set('key02', resp2.cas, b'value02')
+        pipe.lease_set('key03', resp3.cas, b'value03')
+        pipe.lease_set('key04', resp4.cas, b'value04')
+
+        set_resp = set_fn1()
+        self.assertEqual(LeaseSetResponse(), set_resp)
+
+        calls = self.redis.script_calls
+        self.assertEqual(4, len(calls))
+
+        call3 = calls[2]
+        self.assertEqual(1, call3.index)
+        del call3.kwargs['client']
+        self.assertDictEqual({
+            'keys': ['key01', 'key02', 'key03'],
+            'args': [
+                1, b'value01', 70,
+                2, b'value02', 70,
+                3, b'value03', 70,
+            ]
+        }, call3.kwargs)
+
+        call4 = calls[3]
+        self.assertEqual(1, call4.index)
+        del call4.kwargs['client']
+        self.assertDictEqual({
+            'keys': ['key04'],
+            'args': [
+                4, b'value04', 70,
+            ]
+        }, call4.kwargs)
+
+        fn1 = pipe.lease_get('key01')
+        fn4 = pipe.lease_get('key04')
+
+        self.assertEqual(LeaseGetResponse(cas=0, data=b'value01', status=LeaseGetStatus.FOUND), fn1())
+        self.assertEqual(LeaseGetResponse(cas=0, data=b'value04', status=LeaseGetStatus.FOUND), fn4())
