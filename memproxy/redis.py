@@ -7,7 +7,7 @@ from typing import List, Optional, Union
 import redis
 from redis.commands.core import Script
 
-from .memproxy import LeaseGetStatus, LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from .memproxy import LeaseGetStatus, LeaseGetResponse, LeaseSetResponse, LeaseSetStatus, DeleteResponse
 from .memproxy import Pipeline, Promise
 from .session import Session
 
@@ -44,11 +44,13 @@ for i = 1,#KEYS do
     local val = 'val:' .. ARGV[i * 3 - 1]
     local ttl = ARGV[i * 3]
     
-    if resp and resp == cas_str then
+    if not resp then
+        result[i] = 'NF'
+    elseif resp ~= cas_str then
+        result[i] = 'EX'
+    else
         redis.call('SET', k, val, 'EX', ttl)
         result[i] = 'OK'
-    else
-        result[i] = 'NF'
     end
 end
 
@@ -262,17 +264,30 @@ class RedisPipeline:
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
         state = self._get_state()
+
         ttl = random.randrange(self._min_ttl, self._max_ttl + 1)
-        state.add_set_op(key=key, cas=cas, val=data, ttl=ttl)
+
+        index = state.add_set_op(key=key, cas=cas, val=data, ttl=ttl)
 
         def lease_set_fn() -> LeaseSetResponse:
             self._execute(state)
+
             if state.redis_error is not None:
                 return LeaseSetResponse(
+                    status=LeaseSetStatus.ERROR,
                     error=f'Redis Set: {state.redis_error}'
                 )
 
-            return LeaseSetResponse()
+            set_resp = state.set_result[index]
+
+            if set_resp == b'OK':
+                status = LeaseSetStatus.OK
+            elif set_resp == b'NF':
+                status = LeaseSetStatus.NOT_FOUND
+            else:
+                status = LeaseSetStatus.CAS_MISMATCH
+
+            return LeaseSetResponse(status=status)
 
         return lease_set_fn
 

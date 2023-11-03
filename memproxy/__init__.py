@@ -1,4 +1,4 @@
-from .memproxy import LeaseGetStatus, LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from .memproxy import LeaseGetStatus, LeaseGetResponse, LeaseSetStatus, LeaseSetResponse, DeleteResponse
 from .memproxy import Promise, CacheClient, Pipeline
 from .redis import RedisClient
 from .session import Session

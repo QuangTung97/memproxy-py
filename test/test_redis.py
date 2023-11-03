@@ -6,7 +6,8 @@ import redis
 from redis.commands.core import Script
 from redis.typing import ScriptTextT
 
-from memproxy import CacheClient, RedisClient, LeaseGetResponse, LeaseGetStatus, LeaseSetResponse, DeleteResponse
+from memproxy import CacheClient, RedisClient
+from memproxy import LeaseGetResponse, LeaseGetStatus, LeaseSetResponse, LeaseSetStatus, DeleteResponse
 
 
 class TestRedisClient(unittest.TestCase):
@@ -68,7 +69,7 @@ class TestRedisClient(unittest.TestCase):
         resp = fn1()
 
         set_fn1 = pipe.lease_set('key01', resp.cas, b'some-data')
-        set_fn1()
+        self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.OK), set_fn1())
 
         fn2 = pipe.lease_get('key01')
         resp = fn2()
@@ -89,7 +90,7 @@ class TestRedisClient(unittest.TestCase):
         self.addCleanup(pipe.finish)
 
         set_fn1 = pipe.lease_set('key01', 11, b'some-data')
-        set_fn1()
+        self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.NOT_FOUND), set_fn1())
 
         fn1 = pipe.lease_get('key01')
         resp = fn1()
@@ -108,7 +109,7 @@ class TestRedisClient(unittest.TestCase):
         resp = fn1()
 
         set_fn1 = pipe.lease_set('key01', resp.cas + 1, b'some-data')
-        set_fn1()
+        self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.CAS_MISMATCH), set_fn1())
 
         fn2 = pipe.lease_get('key01')
         resp = fn2()
@@ -152,7 +153,7 @@ class TestRedisClient(unittest.TestCase):
         delete_fn1()
 
         set_fn1 = pipe.lease_set('key01', resp.cas, b'value01')
-        set_fn1()
+        self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.NOT_FOUND), set_fn1())
 
         fn2 = pipe.lease_get('key01')
         resp = fn2()
@@ -340,6 +341,7 @@ class TestRedisClientError(unittest.TestCase):
         resp = fn1()
 
         self.assertEqual(LeaseSetResponse(
+            status=LeaseSetStatus.ERROR,
             error='Redis Set: Error 111 connecting to localhost:6400. Connection refused.'
         ), resp)
 
@@ -399,7 +401,7 @@ class TestRedisClientWithCapturing(unittest.TestCase):
         self.assertEqual(LeaseGetResponse(data=b'', cas=1, status=LeaseGetStatus.LEASE_GRANTED), resp1)
 
         set_fn1 = pipe.lease_set('key01', resp1.cas, b'value01')
-        self.assertEqual(LeaseSetResponse(), set_fn1())
+        self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.OK), set_fn1())
 
         self.assertEqual(2, len(self.redis.text_list))
 
@@ -503,7 +505,7 @@ class TestRedisClientWithCapturing(unittest.TestCase):
         pipe.lease_set('key04', resp4.cas, b'value04')
 
         set_resp = set_fn1()
-        self.assertEqual(LeaseSetResponse(), set_resp)
+        self.assertEqual(LeaseSetResponse(LeaseSetStatus.OK), set_resp)
 
         calls = self.redis.script_calls
         self.assertEqual(4, len(calls))

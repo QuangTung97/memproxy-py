@@ -24,8 +24,16 @@ class LeaseGetResponse:
     error: Optional[str] = None
 
 
+class LeaseSetStatus(Enum):
+    OK = 1
+    ERROR = 2
+    NOT_FOUND = 3  # key not found
+    CAS_MISMATCH = 4
+
+
 @dataclass
 class LeaseSetResponse:
+    status: LeaseSetStatus
     error: Optional[str] = None
 
 
