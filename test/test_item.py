@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import cProfile
 import datetime
 import os
 import unittest
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import redis
 
-from memproxy import Item, RedisClient, Promise, new_json_codec, ItemCodec
-from memproxy import Pipeline, Session, DeleteResponse, LeaseSetResponse, LeaseGetResponse
+from memproxy import Item, RedisClient, Promise, new_json_codec, ItemCodec, new_multi_get_filler
+from memproxy import Pipeline, Session, DeleteResponse, LeaseSetResponse, LeaseGetResponse, FillerFunc
 
 
 @dataclass
@@ -16,6 +18,10 @@ class UserTest:
     id: int
     name: str
     age: int
+
+    @staticmethod
+    def get_key(u: UserTest) -> int:
+        return u.id
 
 
 @dataclass
@@ -232,7 +238,7 @@ class TestItemBenchmark(unittest.TestCase):
         self.redis_client.flushall()
         self.redis_client.script_flush()
 
-        c = RedisClient(self.redis_client)
+        c = RedisClient(self.redis_client, max_keys_per_batch=200)
         self.pipe = c.pipeline()
         self.addCleanup(self.pipe.finish)
 
@@ -284,3 +290,118 @@ class TestItemBenchmark(unittest.TestCase):
 
             print("AVG DURATION:", (self.total_duration / num_loops).microseconds / 1000.0)
             pr.dump_stats('item.stats')
+
+
+class TestMultiGetFiller(unittest.TestCase):
+    fill_keys: List[List[int]]
+    return_users: List[UserTest]
+    default: Optional[UserTest]
+
+    def setUp(self) -> None:
+        self.fill_keys = []
+        self.default = UserTest(id=0, name='', age=0)
+
+    def new_filler(self) -> FillerFunc[int, UserTest]:
+        return new_multi_get_filler(
+            fill_func=self.fill_func,
+            get_key_func=UserTest.get_key,
+            default=self.default,
+        )
+
+    def fill_func(self, keys: List[int]) -> List[UserTest]:
+        self.fill_keys.append(keys)
+        return self.return_users
+
+    def test_simple(self) -> None:
+        f = self.new_filler()
+
+        u1 = UserTest(id=21, name='user01', age=71)
+        u2 = UserTest(id=22, name='user02', age=72)
+
+        self.return_users = [u1, u2]
+
+        fn1 = f(21)
+        fn2 = f(22)
+        fn3 = f(23)
+
+        self.assertEqual([], self.fill_keys)
+
+        self.assertEqual(u1, fn1())
+        self.assertEqual(u2, fn2())
+        self.assertEqual(UserTest(id=0, name='', age=0), fn3())
+
+        self.assertEqual([[21, 22, 23]], self.fill_keys)
+
+    def test_with_default_none(self) -> None:
+        self.default = None
+        f = self.new_filler()
+
+        self.return_users = []
+
+        fn1 = f(21)
+
+        self.assertEqual(None, fn1())
+
+        self.assertEqual([[21]], self.fill_keys)
+
+    def test_call_multiple_phases(self) -> None:
+        f = self.new_filler()
+
+        u1 = UserTest(id=21, name='user01', age=71)
+        u2 = UserTest(id=22, name='user02', age=72)
+
+        self.return_users = [u1, u2]
+
+        fn1 = f(21)
+        fn2 = f(22)
+        fn3 = f(23)
+
+        self.assertEqual(u1, fn1())
+        self.assertEqual(u2, fn2())
+        self.assertEqual(UserTest(id=0, name='', age=0), fn3())
+
+        # call again
+        u3 = UserTest(id=23, name='user03', age=73)
+        u4 = UserTest(id=21, name='user12', age=82)
+
+        self.return_users = [u4, u2, u3]
+        fn1 = f(21)
+        fn3 = f(23)
+
+        self.assertEqual(u4, fn1())
+        self.assertEqual(u3, fn3())
+
+        self.assertEqual([
+            [21, 22, 23],
+            [21, 23],
+        ], self.fill_keys)
+
+    def test_interleave(self) -> None:
+        f = self.new_filler()
+
+        u1 = UserTest(id=21, name='user01', age=71)
+        u2 = UserTest(id=22, name='user02', age=72)
+        u3 = UserTest(id=23, name='user03', age=73)
+        u4 = UserTest(id=24, name='user04', age=74)
+
+        self.return_users = [u1, u2]
+
+        fn1 = f(21)
+        fn2 = f(22)
+
+        self.assertEqual(u1, fn1())
+
+        self.return_users = [u3, u4]
+
+        fn3 = f(23)
+        fn4 = f(24)
+
+        self.assertEqual(u2, fn2())
+
+        self.assertEqual(u3, fn3())
+        self.assertEqual(u4, fn4())
+
+        self.assertEqual([
+            [21, 22],
+            [23, 24],
+        ], self.fill_keys)

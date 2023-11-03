@@ -2,7 +2,7 @@ import dataclasses
 import json
 import logging
 from dataclasses import dataclass
-from typing import Generic, TypeVar, Callable, Any
+from typing import Generic, TypeVar, Callable, Any, List, Optional, Dict
 
 from .memproxy import Promise, Pipeline, Session, LeaseGetResponse, LeaseGetStatus
 
@@ -137,3 +137,68 @@ class Item(Generic[T, K]):
 
     def compute_key_name(self, key: K) -> str:
         return self._key_fn(key)
+
+
+class _MultiGetState(Generic[T, K]):
+    keys: List[K]
+    result: Dict[K, T]
+    completed: bool = False
+
+    def __init__(self):
+        self.keys = []
+        self.completed = False
+        self.result = {}
+
+    def add_key(self, key: K):
+        self.keys.append(key)
+
+
+MultiGetFillFunc = Callable[[List[K]], List[T]]  # [K] -> [T]
+GetKeyFunc = Callable[[T], K]  # T -> K
+
+
+class _MultiGetFunc(Generic[T, K]):
+    _state: Optional[_MultiGetState]
+    _fill_func: MultiGetFillFunc
+    _get_key_func: GetKeyFunc
+    _default: Optional[T]
+
+    def __init__(self, fill_func: MultiGetFillFunc, key_func: GetKeyFunc, default: Optional[T]):
+        self._state = None
+        self._fill_func = fill_func
+        self._get_key_func = key_func
+        self._default = default
+
+    def _get_state(self) -> _MultiGetState:
+        if self._state is None:
+            self._state = _MultiGetState()
+        return self._state
+
+    def result_func(self, key: K) -> Promise[T]:
+        state = self._get_state()
+        state.add_key(key)
+
+        def resp_func() -> T:
+            if not state.completed:
+                values = self._fill_func(state.keys)
+
+                for v in values:
+                    k = self._get_key_func(v)
+                    state.result[k] = v
+
+                state.completed = True
+                self._state = None
+
+            return state.result.get(key, self._default)
+
+        return resp_func
+
+
+# from [K] -> [T] to K -> Promise[T]
+def new_multi_get_filler(
+        fill_func: MultiGetFillFunc[K, T],
+        get_key_func: GetKeyFunc,
+        default: Optional[T],
+) -> FillerFunc:
+    fn = _MultiGetFunc[T, K](fill_func=fill_func, key_func=get_key_func, default=default)
+    return fn.result_func
