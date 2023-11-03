@@ -1,4 +1,4 @@
-.PHONY: all lint test coverage html item-profile build-dist upload
+.PHONY: all lint test coverage html item-profile build-dist upload install-tools requirements
 
 all: lint test
 
@@ -22,3 +22,10 @@ build-dist:
 
 upload:
 	twine upload dist/*
+
+install-tools:
+	pip3 install mypy
+	pip3 install coverage
+
+requirements:
+	pip3 freeze >requirements.txt

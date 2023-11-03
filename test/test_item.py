@@ -462,9 +462,6 @@ class TestItemGetMulti(unittest.TestCase):
         )
         self.age = 81
 
-    def hello(self):
-        pass
-
     def fill_multi(self, keys: List[int]) -> List[UserTest]:
         self.fill_keys.append(keys)
         return [UserTest(id=k, name=f'user:{k}', age=self.age) for k in keys]
