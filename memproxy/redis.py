@@ -111,7 +111,7 @@ class RedisPipelineState:
 
     def _execute_in_try(self) -> None:
         if len(self._keys) > 0:
-            self.get_result = self._pipe.get_script(keys=self._keys, client=self._pipe.client)
+            self._execute_lease_get()
 
         if len(self._set_inputs) > 0:
             keys = [i.key for i in self._set_inputs]
@@ -129,6 +129,22 @@ class RedisPipelineState:
 
         self.completed = True
 
+    def _execute_lease_get(self):
+        if len(self._keys) <= self._pipe.max_keys_per_batch:
+            self.get_result = self._pipe.get_script(keys=self._keys, client=self._pipe.client)
+            return
+
+        batch_size = self._pipe.max_keys_per_batch
+        with self._pipe.client.pipeline(transaction=False) as pipe:
+            for n in range(0, len(self._keys), batch_size):
+                keys = self._keys[n: n + batch_size]
+                self._pipe.get_script(keys=keys, client=pipe)
+            pipe_result = pipe.execute()
+
+        self.get_result = []
+        for r in pipe_result:
+            self.get_result.extend(r)
+
 
 CAS_PREFIX = b'cas:'
 VAL_PREFIX = b'val:'
@@ -144,9 +160,16 @@ class RedisPipeline:
     _min_ttl: int
     _max_ttl: int
 
+    max_keys_per_batch: int
+
     _state: Optional[RedisPipelineState]
 
-    def __init__(self, r: redis.Redis, get_script: Script, set_script: Script, min_ttl: int, max_ttl: int):
+    def __init__(
+            self, r: redis.Redis,
+            get_script: Script, set_script: Script,
+            min_ttl: int, max_ttl: int,
+            max_keys_per_batch=100,
+    ):
         self.client = r
         self.get_script = get_script
         self.set_script = set_script
@@ -155,6 +178,8 @@ class RedisPipeline:
 
         self._min_ttl = min_ttl
         self._max_ttl = max_ttl
+
+        self.max_keys_per_batch = max_keys_per_batch
 
         self._state = None
 
@@ -264,13 +289,19 @@ class RedisClient:
     _set_script: Script
     _min_ttl: int
     _max_ttl: int
+    _max_keys_per_batch: int
 
-    def __init__(self, r: redis.Redis, min_ttl=6 * 3600, max_ttl=12 * 3600):
+    def __init__(
+            self, r: redis.Redis,
+            min_ttl=6 * 3600, max_ttl=12 * 3600,
+            max_keys_per_batch=100,
+    ):
         self._client = r
         self._get_script = self._client.register_script(LEASE_GET_SCRIPT)
         self._set_script = self._client.register_script(LEASE_SET_SCRIPT)
         self._min_ttl = min_ttl
         self._max_ttl = max_ttl
+        self._max_keys_per_batch = max_keys_per_batch
 
     def pipeline(self) -> Pipeline:
         return RedisPipeline(
@@ -279,4 +310,5 @@ class RedisClient:
             set_script=self._set_script,
             min_ttl=self._min_ttl,
             max_ttl=self._max_ttl,
+            max_keys_per_batch=self._max_keys_per_batch,
         )

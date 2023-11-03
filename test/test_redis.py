@@ -1,6 +1,10 @@
 import unittest
+from dataclasses import dataclass
+from typing import List, Dict, Any
 
 import redis
+from redis.commands.core import Script
+from redis.typing import ScriptTextT
 
 from memproxy import CacheClient, RedisClient, LeaseGetResponse, LeaseGetStatus, LeaseSetResponse, DeleteResponse
 
@@ -349,3 +353,119 @@ class TestRedisClientError(unittest.TestCase):
         self.assertEqual(DeleteResponse(
             error='Redis Delete: Error 111 connecting to localhost:6400. Connection refused.'
         ), resp)
+
+
+@dataclass
+class ScriptCall:
+    index: int
+    kwargs: Dict
+
+
+class CapturingRedis(redis.Redis):
+    text_list: List[ScriptTextT]
+    script_calls: List[ScriptCall]
+
+    def __init__(self, **kwargs):
+        self.text_list = []
+        self.script_calls = []
+        super().__init__(**kwargs)
+
+    def register_script(self, script: ScriptTextT) -> Script:
+        index = len(self.text_list)
+        self.text_list.append(script)
+
+        redis_script = super().register_script(script)
+
+        def script_wrapper(**kwargs):
+            self.script_calls.append(ScriptCall(index=index, kwargs=kwargs))
+            return redis_script(**kwargs)
+
+        result: Any = script_wrapper
+        return result
+
+
+class TestRedisClientWithCapturing(unittest.TestCase):
+    def setUp(self):
+        self.redis = CapturingRedis()
+        self.redis.flushall()
+        self.redis.script_flush()
+
+    def test_get_single_key(self) -> None:
+        c: CacheClient = RedisClient(self.redis)
+        pipe = c.pipeline()
+
+        fn1 = pipe.lease_get('key01')
+        self.assertEqual(LeaseGetResponse(data=b'', cas=1, status=LeaseGetStatus.LEASE_GRANTED), fn1())
+
+        self.assertEqual(2, len(self.redis.text_list))
+
+        calls = self.redis.script_calls
+        self.assertEqual(1, len(calls))
+
+        self.assertEqual(0, calls[0].index)
+        self.assertDictEqual({
+            'client': self.redis,
+            'keys': ['key01'],
+        }, calls[0].kwargs)
+
+    def test_get_multi_keys__exceed_max_batch(self) -> None:
+        c: CacheClient = RedisClient(self.redis, max_keys_per_batch=3)
+        pipe = c.pipeline()
+
+        fn1 = pipe.lease_get('key01')
+        fn2 = pipe.lease_get('key02')
+        fn3 = pipe.lease_get('key03')
+        fn4 = pipe.lease_get('key04')
+
+        self.assertEqual(LeaseGetResponse(data=b'', cas=1, status=LeaseGetStatus.LEASE_GRANTED), fn1())
+        self.assertEqual(LeaseGetResponse(data=b'', cas=2, status=LeaseGetStatus.LEASE_GRANTED), fn2())
+        self.assertEqual(LeaseGetResponse(data=b'', cas=3, status=LeaseGetStatus.LEASE_GRANTED), fn3())
+        self.assertEqual(LeaseGetResponse(data=b'', cas=4, status=LeaseGetStatus.LEASE_GRANTED), fn4())
+
+        self.assertEqual(2, len(self.redis.text_list))
+
+        calls = self.redis.script_calls
+        self.assertEqual(2, len(calls))
+
+        # Check Call 1
+        self.assertEqual(0, calls[0].index)
+
+        del calls[0].kwargs['client']
+        self.assertDictEqual({
+            'keys': ['key01', 'key02', 'key03'],
+        }, calls[0].kwargs)
+
+        # Check Call 2
+        self.assertEqual(0, calls[1].index)
+
+        del calls[1].kwargs['client']
+        self.assertDictEqual({
+            'keys': ['key04'],
+        }, calls[1].kwargs)
+
+        # Check Near Exceed
+        delete_fn1 = pipe.delete('key01')
+        delete_fn2 = pipe.delete('key02')
+        delete_fn3 = pipe.delete('key03')
+
+        delete_fn1()
+        delete_fn2()
+        delete_fn3()
+
+        fn1 = pipe.lease_get('key01')
+        fn2 = pipe.lease_get('key02')
+        fn3 = pipe.lease_get('key03')
+
+        self.assertEqual(LeaseGetResponse(data=b'', cas=5, status=LeaseGetStatus.LEASE_GRANTED), fn1())
+        self.assertEqual(LeaseGetResponse(data=b'', cas=6, status=LeaseGetStatus.LEASE_GRANTED), fn2())
+        self.assertEqual(LeaseGetResponse(data=b'', cas=7, status=LeaseGetStatus.LEASE_GRANTED), fn3())
+
+        self.assertEqual(3, len(calls))
+
+        # Check Call 3
+        self.assertEqual(0, calls[2].index)
+
+        del calls[2].kwargs['client']
+        self.assertDictEqual({
+            'keys': ['key01', 'key02', 'key03'],
+        }, calls[2].kwargs)
