@@ -5,7 +5,7 @@ import datetime
 import os
 import unittest
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Union
 
 import redis
 
@@ -34,7 +34,7 @@ class SetInput:
 class CapturedPipeline(Pipeline):
     pipe: Pipeline
     get_keys: List[str]
-    set_inputs: List[SetInput]
+    set_inputs: List[Union[SetInput, str]]
 
     def __init__(self, pipe: Pipeline):
         self.pipe = pipe
@@ -43,11 +43,23 @@ class CapturedPipeline(Pipeline):
 
     def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
         self.get_keys.append(key)
-        return self.pipe.lease_get(key)
+        fn = self.pipe.lease_get(key)
+
+        def lease_get_func() -> LeaseGetResponse:
+            self.get_keys.append(f'{key}:func')
+            return fn()
+
+        return lease_get_func
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
         self.set_inputs.append(SetInput(key, cas, data))
-        return self.pipe.lease_set(key, cas, data)
+        fn = self.pipe.lease_set(key, cas, data)
+
+        def lease_set_func() -> LeaseSetResponse:
+            self.set_inputs.append(f'{key}:func')
+            return fn()
+
+        return lease_set_func
 
     def delete(self, key: str) -> Promise[DeleteResponse]:
         return self.pipe.delete(key)
@@ -126,11 +138,17 @@ class TestItemIntegration(unittest.TestCase):
         self.assertEqual(UserTest(id=23, name='user-data:23', age=81), user_fn3())
 
         self.assertEqual([21, 22, 23], self.fill_keys)
-        self.assertEqual(['user:21', 'user:22', 'user:23'], self.pipe.get_keys)
+        self.assertEqual([
+            'user:21', 'user:22', 'user:23',
+            'user:21:func', 'user:22:func', 'user:23:func',
+        ], self.pipe.get_keys)
         self.assertListEqual([
             SetInput('user:21', 1, b'{"id": 21, "name": "user-data:21", "age": 81}'),
             SetInput('user:22', 2, b'{"id": 22, "name": "user-data:22", "age": 81}'),
             SetInput('user:23', 3, b'{"id": 23, "name": "user-data:23", "age": 81}'),
+            'user:21:func',
+            'user:22:func',
+            'user:23:func',
         ], self.pipe.set_inputs)
 
         # Get Again
@@ -143,7 +161,12 @@ class TestItemIntegration(unittest.TestCase):
         self.assertEqual(UserTest(id=23, name='user-data:23', age=81), user_fn3())
 
         self.assertEqual([21, 22, 23], self.fill_keys)
-        self.assertEqual(['user:21', 'user:22', 'user:23'] * 2, self.pipe.get_keys)
+        self.assertEqual(
+            [
+                'user:21', 'user:22', 'user:23',
+                'user:21:func', 'user:22:func', 'user:23:func',
+            ] * 2,
+            self.pipe.get_keys)
 
         # Do Delete
         delete_fn1 = self.pipe.delete(it.compute_key_name(21))
@@ -170,7 +193,7 @@ class TestItemIntegration(unittest.TestCase):
     def test_get_decode_error(self) -> None:
         codec: ItemCodec[UserTest] = new_json_codec(UserTest)
 
-        def decode_fn(data: bytes) -> UserTest:
+        def decode_fn(_: bytes) -> UserTest:
             raise ValueError('can not decode')
 
         codec.decode = decode_fn
@@ -185,8 +208,14 @@ class TestItemIntegration(unittest.TestCase):
         user_fn = it.get(21)
         self.assertEqual(UserTest(id=21, name='user-data:21', age=81), user_fn())
 
-        self.assertEqual(1, len(self.pipe.set_inputs))
-        self.assertEqual('user:21', self.pipe.set_inputs[0].key)
+        self.assertEqual(2, len(self.pipe.set_inputs))
+
+        set_input = self.pipe.set_inputs[0]
+        self.assertTrue(isinstance(set_input, SetInput))
+        if isinstance(set_input, SetInput):
+            self.assertEqual('user:21', set_input.key)
+
+        self.assertEqual('user:21:func', self.pipe.set_inputs[1])
 
         # Get Again
         user_fn = it.get(21)
@@ -295,7 +324,7 @@ class TestItemBenchmark(unittest.TestCase):
 class TestMultiGetFiller(unittest.TestCase):
     fill_keys: List[List[int]]
     return_users: List[UserTest]
-    default: Optional[UserTest]
+    default: UserTest
 
     def setUp(self) -> None:
         self.fill_keys = []
@@ -332,15 +361,14 @@ class TestMultiGetFiller(unittest.TestCase):
 
         self.assertEqual([[21, 22, 23]], self.fill_keys)
 
-    def test_with_default_none(self) -> None:
-        self.default = None
+    def test_single(self) -> None:
         f = self.new_filler()
 
         self.return_users = []
 
         fn1 = f(21)
 
-        self.assertEqual(None, fn1())
+        self.assertEqual(UserTest(id=0, name='', age=0), fn1())
 
         self.assertEqual([[21]], self.fill_keys)
 
@@ -405,3 +433,64 @@ class TestMultiGetFiller(unittest.TestCase):
             [21, 22],
             [23, 24],
         ], self.fill_keys)
+
+
+class TestItemGetMulti(unittest.TestCase):
+    fill_keys: List[List[int]]
+    age: int
+    pipe: CapturedPipeline
+
+    def setUp(self) -> None:
+        self.redis = redis.Redis()
+        self.redis.flushall()
+        self.redis.script_flush()
+
+        c = RedisClient(self.redis)
+        self.pipe = CapturedPipeline(c.pipeline())
+
+        self.fill_keys = []
+
+        self.it = Item[UserTest, int](
+            pipe=self.pipe,
+            key_fn=lambda user_id: f'user:{user_id}',
+            filler=new_multi_get_filler(
+                fill_func=self.fill_multi,
+                get_key_func=UserTest.get_key,
+                default=UserTest(id=0, name='', age=0),
+            ),
+            codec=new_json_codec(UserTest),
+        )
+        self.age = 81
+
+    def hello(self):
+        pass
+
+    def fill_multi(self, keys: List[int]) -> List[UserTest]:
+        self.fill_keys.append(keys)
+        return [UserTest(id=k, name=f'user:{k}', age=self.age) for k in keys]
+
+    def test_normal(self) -> None:
+        it = self.it
+
+        fn1 = it.get_multi([21, 22, 23])
+        fn2 = it.get_multi([24, 25])
+
+        self.assertEqual([
+            UserTest(id=21, name='user:21', age=81),
+            UserTest(id=22, name='user:22', age=81),
+            UserTest(id=23, name='user:23', age=81),
+        ], fn1())
+
+        self.assertEqual([
+            UserTest(id=24, name='user:24', age=81),
+            UserTest(id=25, name='user:25', age=81),
+        ], fn2())
+
+        self.assertEqual([[21, 22, 23, 24, 25]], self.fill_keys)
+
+        self.assertEqual([
+            'user:21', 'user:22', 'user:23',
+            'user:24', 'user:25',
+            'user:21:func', 'user:22:func', 'user:23:func',
+            'user:24:func', 'user:25:func',
+        ], self.pipe.get_keys)

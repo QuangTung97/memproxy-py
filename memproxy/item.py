@@ -135,6 +135,21 @@ class Item(Generic[T, K]):
 
         return get_fn
 
+    def get_multi(self, keys: List[K]) -> Promise[List[T]]:
+        fn_list: List[Promise[T]] = []
+
+        for k in keys:
+            fn = self.get(k)
+            fn_list.append(fn)
+
+        def result_func() -> List[T]:
+            result: List[T] = []
+            for item_fn in fn_list:
+                result.append(item_fn())
+            return result
+
+        return result_func
+
     def compute_key_name(self, key: K) -> str:
         return self._key_fn(key)
 
@@ -161,9 +176,9 @@ class _MultiGetFunc(Generic[T, K]):
     _state: Optional[_MultiGetState]
     _fill_func: MultiGetFillFunc
     _get_key_func: GetKeyFunc
-    _default: Optional[T]
+    _default: T
 
-    def __init__(self, fill_func: MultiGetFillFunc, key_func: GetKeyFunc, default: Optional[T]):
+    def __init__(self, fill_func: MultiGetFillFunc, key_func: GetKeyFunc, default: T):
         self._state = None
         self._fill_func = fill_func
         self._get_key_func = key_func
@@ -198,7 +213,7 @@ class _MultiGetFunc(Generic[T, K]):
 def new_multi_get_filler(
         fill_func: MultiGetFillFunc[K, T],
         get_key_func: GetKeyFunc,
-        default: Optional[T],
+        default: T,
 ) -> FillerFunc:
     fn = _MultiGetFunc[T, K](fill_func=fill_func, key_func=get_key_func, default=default)
     return fn.result_func
