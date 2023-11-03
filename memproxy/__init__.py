@@ -1,5 +1,6 @@
-from .memproxy import LeaseGetStatus, LeaseGetResponse, LeaseSetStatus, LeaseSetResponse, DeleteResponse
+from .item import Item, new_json_codec, ItemCodec
+from .memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from .memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
 from .memproxy import Promise, CacheClient, Pipeline
 from .redis import RedisClient
 from .session import Session
-from .item import Item, new_json_codec, ItemCodec

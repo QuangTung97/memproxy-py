@@ -7,7 +7,8 @@ from redis.commands.core import Script
 from redis.typing import ScriptTextT
 
 from memproxy import CacheClient, RedisClient
-from memproxy import LeaseGetResponse, LeaseGetStatus, LeaseSetResponse, LeaseSetStatus, DeleteResponse
+from memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
 
 
 class TestRedisClient(unittest.TestCase):
@@ -137,7 +138,13 @@ class TestRedisClient(unittest.TestCase):
         ), resp)
 
         delete_fn1 = pipe.delete('key01')
-        delete_fn1()
+        delete_fn2 = pipe.delete('key02')
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), delete_fn1())
+        self.assertEqual(DeleteResponse(status=DeleteStatus.NOT_FOUND), delete_fn2())
+
+        # Delete Again
+        delete_fn1 = pipe.delete('key01')
+        self.assertEqual(DeleteResponse(status=DeleteStatus.NOT_FOUND), delete_fn1())
 
         resp = self.redis_client.get('key01')
         self.assertEqual(None, resp)
@@ -353,6 +360,7 @@ class TestRedisClientError(unittest.TestCase):
         resp = fn1()
 
         self.assertEqual(DeleteResponse(
+            status=DeleteStatus.ERROR,
             error='Redis Delete: Error 111 connecting to localhost:6400. Connection refused.'
         ), resp)
 

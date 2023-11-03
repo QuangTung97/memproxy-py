@@ -37,8 +37,15 @@ class LeaseSetResponse:
     error: Optional[str] = None
 
 
+class DeleteStatus(Enum):
+    OK = 1
+    ERROR = 2
+    NOT_FOUND = 3  # key not found
+
+
 @dataclass
 class DeleteResponse:
+    status: DeleteStatus
     error: Optional[str] = None
 
 

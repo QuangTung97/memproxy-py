@@ -7,7 +7,8 @@ from typing import List, Optional, Union
 import redis
 from redis.commands.core import Script
 
-from .memproxy import LeaseGetStatus, LeaseGetResponse, LeaseSetResponse, LeaseSetStatus, DeleteResponse
+from .memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from .memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
 from .memproxy import Pipeline, Promise
 from .session import Session
 
@@ -77,6 +78,7 @@ class RedisPipelineState:
     set_result: List[bytes]
 
     _delete_keys: List[str]
+    delete_result: List[int]
 
     redis_error: Optional[str]
 
@@ -119,7 +121,10 @@ class RedisPipelineState:
             self._execute_lease_set()
 
         if len(self._delete_keys):
-            self._pipe.client.delete(*self._delete_keys)
+            with self._pipe.client.pipeline(transaction=False) as pipe:
+                for key in self._delete_keys:
+                    pipe.delete(key)
+                self.delete_result = pipe.execute()
 
         self.completed = True
 
@@ -293,16 +298,19 @@ class RedisPipeline:
 
     def delete(self, key: str) -> Promise[DeleteResponse]:
         state = self._get_state()
-        state.add_delete_op(key)
+        index = state.add_delete_op(key)
 
         def delete_fn() -> DeleteResponse:
             self._execute(state)
             if state.redis_error is not None:
                 return DeleteResponse(
+                    status=DeleteStatus.ERROR,
                     error=f'Redis Delete: {state.redis_error}'
                 )
 
-            return DeleteResponse()
+            resp = state.delete_result[index]
+            status = DeleteStatus.OK if resp == 1 else DeleteStatus.NOT_FOUND
+            return DeleteResponse(status=status)
 
         return delete_fn
 
