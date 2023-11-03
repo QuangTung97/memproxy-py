@@ -142,13 +142,13 @@ class RedisPipelineState:
         batch_size = self._pipe.max_keys_per_batch
 
         if len(self._set_inputs) <= batch_size:
-            self.set_result = self._execute_lease_set_inputs(self._set_inputs)
+            self.set_result = self._execute_lease_set_inputs(self._set_inputs, self._pipe.client)
             return
 
         with self._pipe.client.pipeline(transaction=False) as pipe:
             for n in range(0, len(self._set_inputs), batch_size):
                 inputs = self._set_inputs[n: n + batch_size]
-                self._execute_lease_set_inputs(inputs)
+                self._execute_lease_set_inputs(inputs, pipe)
 
             pipe_result = pipe.execute()
 
@@ -156,7 +156,7 @@ class RedisPipelineState:
         for r in pipe_result:
             self.set_result.extend(r)
 
-    def _execute_lease_set_inputs(self, inputs: List[SetInput]) -> List[bytes]:
+    def _execute_lease_set_inputs(self, inputs: List[SetInput], client) -> List[bytes]:
         keys = [i.key for i in inputs]
 
         args: List[Union[int, bytes]] = []
@@ -165,7 +165,7 @@ class RedisPipelineState:
             args.append(i.val)
             args.append(i.ttl)
 
-        return self._pipe.set_script(keys=keys, args=args, client=self._pipe.client)
+        return self._pipe.set_script(keys=keys, args=args, client=client)
 
 
 CAS_PREFIX = b'cas:'
