@@ -3,8 +3,9 @@ from typing import Dict
 
 from memproxy import CacheClient
 from memproxy import LeaseGetResponse, LeaseGetStatus
+from memproxy import LeaseSetResponse, LeaseSetStatus
 from memproxy.proxy import ProxyCacheClient, ReplicatedRoute
-from .fake_pipe import ClientFake, global_get_calls
+from .fake_pipe import ClientFake, global_get_calls, SetInput
 from .fake_stats import StatsFake
 
 
@@ -64,7 +65,7 @@ class TestProxy(unittest.TestCase):
         result = fn()
         self.assertEqual(resp1, result)
 
-        self.assertEqual(['key01', 'key01:func'], pipe1.get_calls)
+        self.assertEqual(['key01', 'key01:func'], pipe1.actions)
 
     def test_lease_get_multi(self) -> None:
         fn1 = self.pipe.lease_get('key01')
@@ -97,7 +98,7 @@ class TestProxy(unittest.TestCase):
         self.assertEqual([
             'key01', 'key02', 'key03',
             'key01:func', 'key02:func', 'key03:func',
-        ], pipe1.get_calls)
+        ], pipe1.actions)
 
     def test_lease_get_error_retry_on_another(self) -> None:
         fn = self.pipe.lease_get('key01')
@@ -122,6 +123,39 @@ class TestProxy(unittest.TestCase):
 
         self.assertEqual(resp2, fn())
 
-        self.assertEqual(['key01', 'key01:func'], pipe1.get_calls)
-        self.assertEqual(['key01', 'key01:func'], pipe2.get_calls)
+        self.assertEqual(['key01', 'key01:func'], pipe1.actions)
+        self.assertEqual(['key01', 'key01:func'], pipe2.actions)
         self.assertEqual(['key01', 'key01:func', 'key01', 'key01:func'], global_get_calls)
+
+    def test_lease_get_then_set(self) -> None:
+        resp1 = LeaseGetResponse(
+            status=LeaseGetStatus.LEASE_GRANTED,
+            cas=61,
+            data=b'',
+        )
+
+        pipe1 = self.clients[21].pipe
+        pipe1.get_results = [resp1]
+
+        fn1 = self.pipe.lease_get('key01')
+        self.assertEqual(resp1, fn1())
+
+        set_fn1 = self.pipe.lease_set('key01', resp1.cas, b'data 01')
+        self.assertEqual(LeaseSetResponse(LeaseSetStatus.OK), set_fn1())
+
+        self.assertEqual([
+            SetInput(key='key01', cas=resp1.cas, val=b'data 01')
+        ], pipe1.set_calls)
+
+        self.assertEqual([
+            'key01', 'key01:func', 'set key01', 'set key01:func'
+        ], pipe1.actions)
+
+    def test_lease_set_only(self) -> None:
+        pipe1 = self.clients[21].pipe
+
+        set_fn1 = self.pipe.lease_set('key01', 71, b'data 01')
+        self.assertEqual(LeaseSetResponse(LeaseSetStatus.ERROR, error='proxy: can not do lease set'), set_fn1())
+
+        self.assertEqual([], pipe1.set_calls)
+        self.assertEqual([], pipe1.actions)

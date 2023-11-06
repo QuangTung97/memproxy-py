@@ -17,7 +17,7 @@ global_get_calls: List[str] = []
 
 
 class PipelineFake:
-    get_calls: List[str]
+    actions: List[str]
     get_results: List[LeaseGetResponse]
 
     set_calls: List[SetInput]
@@ -27,7 +27,8 @@ class PipelineFake:
     sess: Session
 
     def __init__(self):
-        self.get_calls = []
+        self.actions = []
+
         self.get_results = []
 
         self.set_calls = []
@@ -35,13 +36,13 @@ class PipelineFake:
         self.delete_calls = []
 
     def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
-        index = len(self.get_calls)
+        index = len(self.actions)
 
-        self.get_calls.append(key)
+        self.actions.append(key)
         global_get_calls.append(key)
 
         def get_func():
-            self.get_calls.append(f'{key}:func')
+            self.actions.append(f'{key}:func')
             global_get_calls.append(f'{key}:func')
             return self.get_results[index]
 
@@ -54,7 +55,10 @@ class PipelineFake:
             val=data,
         ))
 
+        self.actions.append(f'set {key}')
+
         def set_func() -> LeaseSetResponse:
+            self.actions.append(f'set {key}:func')
             return LeaseSetResponse(status=LeaseSetStatus.OK)
 
         return set_func

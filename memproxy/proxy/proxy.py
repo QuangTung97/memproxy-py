@@ -1,7 +1,8 @@
 from typing import Dict, List, Callable, Optional
 
+from memproxy import LeaseGetStatus, LeaseSetStatus
 from memproxy import Pipeline, CacheClient, Session
-from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse, LeaseGetStatus
+from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from .route import Selector, Route
 
 
@@ -14,12 +15,22 @@ class _ClientConfig:
         self.route = route
 
 
+class _LeaseSetServer:
+    server_id: Optional[int]
+
+    def __init__(self, server_id: int):
+        self.server_id = server_id
+
+
 class _PipelineConfig:
     conf: _ClientConfig
     sess: Session
     pipe_sess: Session
     selector: Selector
-    pipelines: Dict[int, Pipeline]
+
+    _pipelines: Dict[int, Pipeline]
+
+    _set_servers: Optional[Dict[str, _LeaseSetServer]]
 
     def __init__(self, conf: _ClientConfig, sess: Optional[Session]):
         self.conf = conf
@@ -31,20 +42,41 @@ class _PipelineConfig:
         self.sess = sess.get_lower()
 
         self.selector = conf.route.new_selector()
-        self.pipelines = {}
+
+        self._pipelines = {}
+
+        self._set_servers = None
 
     def get_pipeline(self, server_id: int) -> Pipeline:
-        pipe = self.pipelines.get(server_id)
+        pipe = self._pipelines.get(server_id)
         if pipe:
             return pipe
 
         new_pipe = self.conf.clients[server_id].pipeline(sess=self.pipe_sess)
-        self.pipelines[server_id] = new_pipe
+        self._pipelines[server_id] = new_pipe
         return new_pipe
 
+    def _get_servers(self) -> Dict[str, _LeaseSetServer]:
+        if not self._set_servers:
+            self._set_servers = {}
+        return self._set_servers
 
-class _LeaseSetState:
-    server_id: Optional[int]
+    def add_set_server(self, key: str, server_id: int):
+        servers = self._get_servers()
+        servers[key] = _LeaseSetServer(server_id=server_id)
+
+    def get_set_server(self, key: str) -> Optional[int]:
+        servers = self._get_servers()
+
+        state = servers.get(key)
+        if state is None:
+            return None
+
+        return state.server_id
+
+    def execute(self):
+        self.sess.execute()
+        self.selector.reset()
 
 
 class _LeaseGetState:
@@ -69,8 +101,13 @@ class _LeaseGetState:
 
         self.fn = self.pipe.lease_get(key)
 
-    def next_func(self) -> None:
+    def _handle_resp(self):
         self.resp = self.fn()
+        if self.resp.status == LeaseGetStatus.LEASE_GRANTED:
+            self.conf.add_set_server(self.key, self.server_id)
+
+    def next_func(self) -> None:
+        self._handle_resp()
 
         if self.resp.status != LeaseGetStatus.ERROR:
             return
@@ -85,14 +122,30 @@ class _LeaseGetState:
         self.fn = pipe.lease_get(self.key)
 
         def next_again_func():
-            self.resp = self.fn()
+            self._handle_resp()
 
         self.conf.sess.add_next_call(next_again_func)
 
     def return_func(self) -> LeaseGetResponse:
-        self.conf.sess.execute()
-        self.conf.selector.reset()
+        self.conf.execute()
 
+        return self.resp
+
+
+class _LeaseSetState:
+    conf: _PipelineConfig
+    fn: Promise[LeaseSetResponse]
+    resp: LeaseSetResponse
+
+    def __init__(self, conf: _PipelineConfig, fn: Promise[LeaseSetResponse]):
+        self.conf = conf
+        self.fn = fn
+
+    def next_func(self):
+        self.resp = self.fn()
+
+    def return_func(self) -> LeaseSetResponse:
+        self.conf.execute()
         return self.resp
 
 
@@ -113,7 +166,21 @@ class ProxyPipeline:
         return state.return_func
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
-        raise NotImplemented
+        server_id = self._conf.get_set_server(key)
+        if not server_id:
+            def lease_set_error() -> LeaseSetResponse:
+                return LeaseSetResponse(status=LeaseSetStatus.ERROR, error='proxy: can not do lease set')
+
+            return lease_set_error
+
+        pipe = self._conf.get_pipeline(server_id)
+
+        fn = pipe.lease_set(key, cas, data)
+        state = _LeaseSetState(conf=self._conf, fn=fn)
+
+        self._conf.sess.add_next_call(state.next_func)
+
+        return state.return_func
 
     def delete(self, key: str) -> Promise[DeleteResponse]:
         raise NotImplemented
