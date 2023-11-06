@@ -13,6 +13,9 @@ class SetInput:
     val: bytes
 
 
+global_get_calls: List[str] = []
+
+
 class PipelineFake:
     get_calls: List[str]
     get_results: List[LeaseGetResponse]
@@ -33,9 +36,13 @@ class PipelineFake:
 
     def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
         index = len(self.get_calls)
+
         self.get_calls.append(key)
+        global_get_calls.append(key)
 
         def get_func():
+            self.get_calls.append(f'{key}:func')
+            global_get_calls.append(f'{key}:func')
             return self.get_results[index]
 
         return get_func
@@ -79,8 +86,8 @@ class ClientFake:
 
     def __init__(self):
         self.new_calls = []
+        self.pipe = PipelineFake()
 
     def pipeline(self, sess: Optional[Session] = None) -> Pipeline:
         self.new_calls.append(sess)
-        self.pipe = PipelineFake()
         return self.pipe

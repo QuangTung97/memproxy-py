@@ -210,6 +210,38 @@ class TestReplicatedSelector(unittest.TestCase):
         self.assertEqual(22, server_id)
         self.assertEqual(True, ok)
 
+    def test_set_failed_after_select(self) -> None:
+        self.rand_val = 0
+        self.stats.mem = {
+            21: 100.0,
+            22: 100.0,
+            23: 100.0,
+        }
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(21, server_id)
+        self.assertEqual(True, ok)
+        self.assertEqual([21, 22, 23], self.stats.get_calls)
+
+        self.selector.set_failed_server(21)
+        self.assertEqual([21], self.stats.notify_calls)
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(True, ok)
+
+        self.assertEqual([21, 22, 23, 22, 23], self.stats.get_calls)
+
+        # set again
+        self.selector.set_failed_server(21)
+        self.assertEqual([21], self.stats.notify_calls)
+
+        # get again
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(True, ok)
+        self.assertEqual([21, 22, 23, 22, 23], self.stats.get_calls)
+
     def test_set_failed_for_all(self) -> None:
         self.stats.mem = {
             21: 100.0,

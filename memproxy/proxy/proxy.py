@@ -1,7 +1,7 @@
 from typing import Dict, List, Callable, Optional
 
 from memproxy import Pipeline, CacheClient, Session
-from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse, LeaseGetStatus
 from .route import Selector, Route
 
 
@@ -70,8 +70,24 @@ class _LeaseGetState:
         self.fn = self.pipe.lease_get(key)
 
     def next_func(self) -> None:
-        resp = self.fn()
-        self.resp = resp
+        self.resp = self.fn()
+
+        if self.resp.status != LeaseGetStatus.ERROR:
+            return
+
+        self.conf.selector.set_failed_server(self.server_id)
+
+        self.server_id, ok = self.conf.selector.select_server(self.key)
+        if not ok:
+            return
+
+        pipe = self.conf.get_pipeline(self.server_id)
+        self.fn = pipe.lease_get(self.key)
+
+        def next_again_func():
+            self.resp = self.fn()
+
+        self.conf.sess.add_next_call(next_again_func)
 
     def return_func(self) -> LeaseGetResponse:
         self.conf.sess.execute()
@@ -91,6 +107,8 @@ class ProxyPipeline:
             conf=self._conf,
             key=key,
         )
+
+        self._conf.sess.add_next_call(state.next_func)
 
         return state.return_func
 

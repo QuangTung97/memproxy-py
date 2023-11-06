@@ -70,6 +70,7 @@ class ReplicatedSelector:
             return
         self._failed_servers.add(server_id)
         self._conf.stats.notify_server_failed(server_id)
+        self.reset()
 
     def select_server(self, _: str) -> Tuple[int, bool]:
         if self._chosen_server:
