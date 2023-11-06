@@ -1,11 +1,11 @@
 import unittest
 from typing import Dict
 
-from memproxy import CacheClient
+from memproxy import CacheClient, DeleteResponse, DeleteStatus
 from memproxy import LeaseGetResponse, LeaseGetStatus
 from memproxy import LeaseSetResponse, LeaseSetStatus
 from memproxy.proxy import ProxyCacheClient, ReplicatedRoute
-from .fake_pipe import ClientFake, global_get_calls, SetInput
+from .fake_pipe import ClientFake, global_actions, SetInput
 from .fake_stats import StatsFake
 
 
@@ -14,7 +14,7 @@ class TestProxy(unittest.TestCase):
     rand_val: int
 
     def setUp(self) -> None:
-        global_get_calls.clear()
+        global_actions.clear()
 
         self.server_ids = [21, 22, 23]
         self.stats = StatsFake()
@@ -125,7 +125,7 @@ class TestProxy(unittest.TestCase):
 
         self.assertEqual(['key01', 'key01:func'], pipe1.actions)
         self.assertEqual(['key01', 'key01:func'], pipe2.actions)
-        self.assertEqual(['key01', 'key01:func', 'key01', 'key01:func'], global_get_calls)
+        self.assertEqual(['key01', 'key01:func', 'key01', 'key01:func'], global_actions)
 
     def test_lease_get_retry_server_already_failed(self) -> None:
         self.stats.failed_servers.add(21)
@@ -224,4 +224,92 @@ class TestProxy(unittest.TestCase):
         self.assertEqual([
             'key01', 'key01:func', 'key01', 'key01:func',
             'key01', 'key01:func'
-        ], global_get_calls)
+        ], global_actions)
+
+    def test_delete(self) -> None:
+        fn1 = self.pipe.delete('key01')
+        fn2 = self.pipe.delete('key02')
+
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), fn1())
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), fn2())
+
+        pipe1 = self.clients[21].pipe
+        pipe2 = self.clients[22].pipe
+        pipe3 = self.clients[23].pipe
+
+        self.assertEqual([
+            'del key01', 'del key02', 'del key01:func', 'del key02:func'
+        ], pipe1.actions)
+        self.assertEqual([
+            'del key01', 'del key02', 'del key01:func', 'del key02:func'
+        ], pipe2.actions)
+        self.assertEqual([
+            'del key01', 'del key02', 'del key01:func', 'del key02:func'
+        ], pipe3.actions)
+
+        self.assertEqual([
+            'del key01', 'del key01', 'del key01',
+            'del key02', 'del key02', 'del key02',
+            'del key01:func', 'del key01:func', 'del key01:func',
+            'del key02:func', 'del key02:func', 'del key02:func',
+        ], global_actions)
+
+    def test_delete_with_failed_server(self) -> None:
+        self.stats.failed_servers.add(21)
+
+        fn1 = self.pipe.delete('key01')
+
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), fn1())
+
+        pipe2 = self.clients[22].pipe
+        pipe3 = self.clients[23].pipe
+
+        self.assertEqual([
+            'del key01', 'del key01:func',
+        ], pipe2.actions)
+        self.assertEqual([
+            'del key01', 'del key01:func',
+        ], pipe3.actions)
+
+        self.assertEqual([
+            'del key01', 'del key01',
+            'del key01:func', 'del key01:func',
+        ], global_actions)
+
+    def test_delete_with_no_servers(self) -> None:
+        self.stats.failed_servers.add(21)
+        self.stats.failed_servers.add(22)
+        self.stats.failed_servers.add(23)
+
+        fn1 = self.pipe.delete('key01')
+
+        self.assertEqual(DeleteResponse(status=DeleteStatus.NOT_FOUND), fn1())
+
+        self.assertEqual([], global_actions)
+
+    def test_finish(self) -> None:
+        self.pipe.delete('key01')
+
+        self.pipe.finish()
+
+        pipe1 = self.clients[21].pipe
+        pipe2 = self.clients[22].pipe
+        pipe3 = self.clients[23].pipe
+
+        self.assertEqual([
+            'del key01',
+            'finish',
+        ], pipe1.actions)
+        self.assertEqual([
+            'del key01',
+            'finish',
+        ], pipe2.actions)
+        self.assertEqual([
+            'del key01',
+            'finish',
+        ], pipe3.actions)
+
+        self.assertEqual([
+            'del key01', 'del key01', 'del key01',
+            'finish', 'finish', 'finish'
+        ], global_actions)

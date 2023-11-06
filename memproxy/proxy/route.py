@@ -18,7 +18,7 @@ class Selector(Protocol):
     def select_server(self, key: str) -> Tuple[int, bool]: pass
 
     @abstractmethod
-    def select_servers_for_delete(self) -> List[int]: pass
+    def select_servers_for_delete(self, key: str) -> List[int]: pass
 
     @abstractmethod
     def reset(self) -> None: pass

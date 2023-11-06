@@ -312,7 +312,7 @@ class TestReplicatedSelector(unittest.TestCase):
             23: 100.0,
         }
 
-        servers = self.selector.select_servers_for_delete()
+        servers = self.selector.select_servers_for_delete('key01')
         self.assertEqual([21, 22, 23], servers)
 
         self.assertEqual([21, 22, 23], self.stats.get_calls)
@@ -327,7 +327,7 @@ class TestReplicatedSelector(unittest.TestCase):
 
         self.stats.failed_servers.add(21)
 
-        servers = self.selector.select_servers_for_delete()
+        servers = self.selector.select_servers_for_delete('key01')
         self.assertEqual([22, 23], servers)
 
         self.assertEqual([21, 22, 23], self.stats.get_calls)

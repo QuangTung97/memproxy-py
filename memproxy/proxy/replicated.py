@@ -80,8 +80,8 @@ class ReplicatedSelector:
         assert self._chosen_server is not None
         return self._chosen_server, ok
 
-    def select_servers_for_delete(self) -> List[int]:
-        self.select_server('')
+    def select_servers_for_delete(self, key: str) -> List[int]:
+        self.select_server(key)
 
         result: List[int] = []
         for server_id in self._conf.servers:

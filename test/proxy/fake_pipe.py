@@ -13,7 +13,7 @@ class SetInput:
     val: bytes
 
 
-global_get_calls: List[str] = []
+global_actions: List[str] = []
 
 
 class PipelineFake:
@@ -24,9 +24,9 @@ class PipelineFake:
 
     set_calls: List[SetInput]
 
-    delete_calls: List[str]
-
     sess: Session
+
+    finish_calls: int
 
     def __init__(self):
         self.actions = []
@@ -35,19 +35,18 @@ class PipelineFake:
         self.get_results = []
 
         self.set_calls = []
-
-        self.delete_calls = []
+        self.finish_calls = 0
 
     def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
         index = len(self.get_keys)
         self.get_keys.append(key)
 
         self.actions.append(key)
-        global_get_calls.append(key)
+        global_actions.append(key)
 
         def get_func():
             self.actions.append(f'{key}:func')
-            global_get_calls.append(f'{key}:func')
+            global_actions.append(f'{key}:func')
             return self.get_results[index]
 
         return get_func
@@ -68,9 +67,12 @@ class PipelineFake:
         return set_func
 
     def delete(self, key: str) -> Promise[DeleteResponse]:
-        self.delete_calls.append(key)
+        self.actions.append(f'del {key}')
+        global_actions.append(f'del {key}')
 
         def delete_func() -> DeleteResponse:
+            self.actions.append(f'del {key}:func')
+            global_actions.append(f'del {key}:func')
             return DeleteResponse(status=DeleteStatus.OK)
 
         return delete_func
@@ -79,7 +81,9 @@ class PipelineFake:
         return self.sess
 
     def finish(self) -> None:
-        pass
+        self.actions.append('finish')
+        global_actions.append('finish')
+        self.finish_calls += 1
 
     def __enter__(self):
         return self

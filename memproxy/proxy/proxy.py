@@ -1,6 +1,6 @@
 from typing import Dict, List, Callable, Optional
 
-from memproxy import LeaseGetStatus, LeaseSetStatus
+from memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
 from memproxy import Pipeline, CacheClient, Session
 from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from .route import Selector, Route
@@ -82,6 +82,10 @@ class _PipelineConfig:
     def execute(self):
         self.sess.execute()
         self.selector.reset()
+
+    def finish(self):
+        for server_id in self._pipelines:
+            self._pipelines[server_id].finish()
 
 
 class _LeaseGetState:
@@ -188,13 +192,29 @@ class ProxyPipeline:
         return state.return_func
 
     def delete(self, key: str) -> Promise[DeleteResponse]:
-        raise NotImplemented
+        servers = self._conf.selector.select_servers_for_delete(key)
+
+        fn_list: List[Promise[DeleteResponse]] = []
+        for server_id in servers:
+            pipe = self._conf.get_pipeline(server_id)
+            fn = pipe.delete(key)
+            fn_list.append(fn)
+
+        def delete_func() -> DeleteResponse:
+            resp = DeleteResponse(status=DeleteStatus.NOT_FOUND)
+            for resp_fn in fn_list:
+                new_resp = resp_fn()
+                if new_resp.status == DeleteStatus.OK:
+                    resp = new_resp
+            return resp
+
+        return delete_func
 
     def lower_session(self) -> Session:
         return self._conf.sess.get_lower()
 
     def finish(self) -> None:
-        pass
+        self._conf.finish()
 
     def __enter__(self):
         return self
