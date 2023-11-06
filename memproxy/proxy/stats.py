@@ -140,7 +140,7 @@ class ServerStats:
 
         return self._notify_timeout()
 
-    def _run(self):
+    def _run(self) -> None:
         while True:
             timeout_servers: List[int] = []
             with self._mut:
