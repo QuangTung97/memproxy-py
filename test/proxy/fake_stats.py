@@ -21,7 +21,7 @@ class StatsFake:
         self.get_calls.append(server_id)
 
         if server_id in self.failed_servers:
-            return server_id
+            return None
 
         return self.mem[server_id]
 

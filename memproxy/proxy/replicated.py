@@ -28,6 +28,7 @@ class ReplicatedSelector:
 
             usage = self._conf.stats.get_mem_usage(server_id)
             if usage is None:
+                self._failed_servers.add(server_id)
                 continue
 
             remaining.append(server_id)
@@ -79,6 +80,8 @@ class ReplicatedSelector:
         return self._chosen_server, ok
 
     def select_servers_for_delete(self) -> List[int]:
+        self.select_server('')
+
         result: List[int] = []
         for server_id in self._conf.servers:
             if server_id in self._failed_servers:
