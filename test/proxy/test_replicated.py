@@ -48,3 +48,39 @@ class TestReplicatedSelector(unittest.TestCase):
 
         self.assertEqual([21, 22, 23], self.stats.get_calls)
         self.assertEqual([RAND_MAX], self.rand_calls)
+
+    def test_choose_servers(self) -> None:
+        self.assertEqual(1000000, RAND_MAX)
+
+        self.rand_val = 333334
+        self.stats.mem = {
+            21: 100.0,
+            22: 100.0,
+            23: 100.0,
+        }
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(True, ok)
+
+        self.assertEqual([21, 22, 23], self.stats.get_calls)
+        self.assertEqual([RAND_MAX], self.rand_calls)
+
+        # select again
+        self.selector = self.route.new_selector()
+        self.rand_val = 333333
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(21, server_id)
+        self.assertEqual(True, ok)
+
+        # select again
+        self.selector = self.route.new_selector()
+        self.rand_val = 666667
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(23, server_id)
+        self.assertEqual(True, ok)
+
+        self.assertEqual([21, 22, 23] * 3, self.stats.get_calls)
+        self.assertEqual([RAND_MAX] * 3, self.rand_calls)

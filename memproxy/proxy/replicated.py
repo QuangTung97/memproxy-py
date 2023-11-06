@@ -1,32 +1,28 @@
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass
 from typing import Optional, List, Tuple, Callable, Set
 
 from .route import Selector, Stats
 
 
 class ReplicatedSelector:
-    _config_servers: List[int]
-    _stats: Stats
-    _rand: RandFunc
+    _conf: _RouteConfig
 
     _chosen_server: Optional[int]
     _failed_servers: Set[int]
 
-    def __init__(self, server_ids: List[int], stats: Stats, rand: RandFunc):
-        self._stats = stats
-        self._config_servers = server_ids
-        self._rand = rand
-
+    def __init__(self, conf: _RouteConfig):
+        self._conf = conf
         self._chosen_server = None
 
     def _compute_chosen_server(self) -> bool:
         remaining: List[int] = []
         weights: List[float] = []
 
-        for server_id in self._config_servers:
-            usage = self._stats.get_mem_usage(server_id)
+        for server_id in self._conf.servers:
+            usage = self._conf.stats.get_mem_usage(server_id)
             if usage is None:
                 continue
 
@@ -43,7 +39,7 @@ class ReplicatedSelector:
 
         max_weight = weights[-1]
 
-        val = self._rand(RAND_MAX)
+        val = self._conf.rand(RAND_MAX)
         pos = float(val) / float(RAND_MAX)
 
         chosen_weight = max_weight * pos
@@ -67,7 +63,7 @@ class ReplicatedSelector:
 
     def select_servers_for_delete(self) -> List[int]:
         result: List[int] = []
-        for server_id in self._config_servers:
+        for server_id in self._conf.servers:
             if server_id in self._failed_servers:
                 continue
             result.append(server_id)
@@ -78,25 +74,28 @@ RAND_MAX = 1_000_000
 RandFunc = Callable[[int], int]  # (n) -> int, random from 0 -> n - 1
 
 
+@dataclass
+class _RouteConfig:
+    servers: List[int]
+    stats: Stats
+    rand: RandFunc
+
+
 class ReplicatedRoute:
-    _config_servers: List[int]
-    _stats: Stats
-    _rand: RandFunc
+    _conf: _RouteConfig
 
     def __init__(self, server_ids: List[int], stats: Stats, rand: RandFunc = random.randrange):
         if len(server_ids) == 0:
             raise ValueError("server_ids must not be empty")
 
-        self._config_servers = server_ids
-        self._stats = stats
-        self._rand = rand
+        self._conf = _RouteConfig(
+            servers=server_ids,
+            stats=stats,
+            rand=rand,
+        )
 
     def new_selector(self) -> Selector:
-        return ReplicatedSelector(
-            server_ids=self._config_servers,
-            stats=self._stats,
-            rand=self._rand,
-        )
+        return ReplicatedSelector(conf=self._conf)
 
 
 def recompute_weights_with_min_percent(weights: List[float], min_percent: float) -> None:
