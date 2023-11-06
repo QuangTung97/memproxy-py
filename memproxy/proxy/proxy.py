@@ -63,6 +63,11 @@ class _PipelineConfig:
 
     def add_set_server(self, key: str, server_id: int):
         servers = self._get_servers()
+        existing = servers.get(key)
+        if existing and existing.server_id != server_id:
+            existing.server_id = None
+            return
+
         servers[key] = _LeaseSetServer(server_id=server_id)
 
     def get_set_server(self, key: str) -> Optional[int]:

@@ -127,6 +127,26 @@ class TestProxy(unittest.TestCase):
         self.assertEqual(['key01', 'key01:func'], pipe2.actions)
         self.assertEqual(['key01', 'key01:func', 'key01', 'key01:func'], global_get_calls)
 
+    def test_lease_get_retry_server_already_failed(self) -> None:
+        self.stats.failed_servers.add(21)
+        self.stats.failed_servers.add(22)
+
+        fn = self.pipe.lease_get('key01')
+
+        resp1 = LeaseGetResponse(
+            status=LeaseGetStatus.ERROR,
+            cas=0,
+            data=b'',
+            error='server error'
+        )
+
+        pipe1 = self.clients[23].pipe
+        pipe1.get_results = [resp1]
+
+        self.assertEqual(resp1, fn())
+
+        self.assertEqual(['key01', 'key01:func'], pipe1.actions)
+
     def test_lease_get_then_set(self) -> None:
         resp1 = LeaseGetResponse(
             status=LeaseGetStatus.LEASE_GRANTED,
@@ -159,3 +179,49 @@ class TestProxy(unittest.TestCase):
 
         self.assertEqual([], pipe1.set_calls)
         self.assertEqual([], pipe1.actions)
+
+    def test_lease_get_then_set_to_another_server(self) -> None:
+        resp1 = LeaseGetResponse(
+            status=LeaseGetStatus.LEASE_GRANTED,
+            cas=61,
+            data=b'',
+        )
+        resp2 = LeaseGetResponse(
+            status=LeaseGetStatus.ERROR,
+            cas=0,
+            data=b'',
+        )
+
+        pipe1 = self.clients[21].pipe
+        pipe1.get_results = [resp1, resp2]
+
+        fn1 = self.pipe.lease_get('key01')
+        self.assertEqual(resp1, fn1())
+
+        # get again switch to another server
+        resp3 = LeaseGetResponse(
+            status=LeaseGetStatus.LEASE_GRANTED,
+            cas=71,
+            data=b'',
+        )
+
+        pipe2 = self.clients[22].pipe
+        pipe2.get_results = [resp3]
+
+        fn2 = self.pipe.lease_get('key01')
+        self.assertEqual(resp3, fn2())
+
+        # lease set should fail
+        set_fn1 = self.pipe.lease_set('key01', resp1.cas, b'data 01')
+        self.assertEqual(LeaseSetResponse(LeaseSetStatus.ERROR, error='proxy: can not do lease set'), set_fn1())
+
+        self.assertEqual([], pipe1.set_calls)
+
+        self.assertEqual([
+            'key01', 'key01:func', 'key01', 'key01:func'
+        ], pipe1.actions)
+
+        self.assertEqual([
+            'key01', 'key01:func', 'key01', 'key01:func',
+            'key01', 'key01:func'
+        ], global_get_calls)
