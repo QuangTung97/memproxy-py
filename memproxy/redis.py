@@ -197,13 +197,14 @@ class RedisPipeline:
             self, r: redis.Redis,
             get_script: Script, set_script: Script,
             min_ttl: int, max_ttl: int,
-            max_keys_per_batch=100,
+            sess: Optional[Session],
+            max_keys_per_batch: int,
     ):
         self.client = r
         self.get_script = get_script
         self.set_script = set_script
 
-        self._sess = Session()
+        self._sess = sess or Session()
 
         self._min_ttl = min_ttl
         self._max_ttl = max_ttl
@@ -348,12 +349,13 @@ class RedisClient:
         self._max_ttl = max_ttl
         self._max_keys_per_batch = max_keys_per_batch
 
-    def pipeline(self) -> Pipeline:
+    def pipeline(self, sess: Optional[Session] = None) -> Pipeline:
         return RedisPipeline(
             r=self._client,
             get_script=self._get_script,
             set_script=self._set_script,
             min_ttl=self._min_ttl,
             max_ttl=self._max_ttl,
+            sess=sess,
             max_keys_per_batch=self._max_keys_per_batch,
         )

@@ -74,4 +74,4 @@ class Pipeline(Protocol):
 
 class CacheClient(Protocol):
     @abstractmethod
-    def pipeline(self) -> Pipeline: pass
+    def pipeline(self, sess: Optional[Session] = None) -> Pipeline: pass
