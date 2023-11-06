@@ -16,12 +16,16 @@ class ReplicatedSelector:
     def __init__(self, conf: _RouteConfig):
         self._conf = conf
         self._chosen_server = None
+        self._failed_servers = set()
 
     def _compute_chosen_server(self) -> bool:
         remaining: List[int] = []
         weights: List[float] = []
 
         for server_id in self._conf.servers:
+            if server_id in self._failed_servers:
+                continue
+
             usage = self._conf.stats.get_mem_usage(server_id)
             if usage is None:
                 continue
@@ -29,11 +33,17 @@ class ReplicatedSelector:
             remaining.append(server_id)
             weights.append(usage)
 
+        ok = True
         if len(remaining) == 0:
-            # TODO
-            pass
+            remaining = self._conf.servers
+            weights = [1.0] * len(remaining)
+            ok = False
 
-        recompute_weights_with_min_percent(weights, 1.0)
+        if all(w < 1.0 for w in weights):
+            for i in range(len(weights)):
+                weights[i] = 1.0
+
+        recompute_weights_with_min_percent(weights, self._conf.min_percent)
 
         # accumulate
         for i in range(1, len(weights)):
@@ -49,20 +59,24 @@ class ReplicatedSelector:
         for i in range(len(weights)):
             if weights[i] > chosen_weight:
                 self._chosen_server = remaining[i]
-                return True
+                return ok
 
         self._chosen_server = remaining[-1]
-        return False
+        return ok
 
     def set_failed_server(self, server_id: int) -> None:
-        pass
+        if server_id in self._failed_servers:
+            return
+        self._failed_servers.add(server_id)
+        self._conf.stats.notify_server_failed(server_id)
 
     def select_server(self, _: str) -> Tuple[int, bool]:
-        if not self._chosen_server:
-            self._compute_chosen_server()
+        if self._chosen_server:
+            return self._chosen_server, True
 
+        ok = self._compute_chosen_server()
         assert self._chosen_server is not None
-        return self._chosen_server, True
+        return self._chosen_server, ok
 
     def select_servers_for_delete(self) -> List[int]:
         result: List[int] = []

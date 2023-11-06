@@ -160,3 +160,114 @@ class TestReplicatedSelector(unittest.TestCase):
         server_id, ok = self.selector.select_server('key01')
         self.assertEqual(22, server_id)
         self.assertEqual(True, ok)
+
+    def test_choose_servers_all_zeros(self) -> None:
+        self.assertEqual(1000000, RAND_MAX)
+
+        self.rand_val = 333333
+        self.stats.mem = {
+            21: 0.0,
+            22: 0.0,
+            23: 0.0,
+        }
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(21, server_id)
+        self.assertEqual(True, ok)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 333334
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(True, ok)
+
+    def test_set_failed(self) -> None:
+        self.assertEqual(1000000, RAND_MAX)
+
+        self.rand_val = 0
+        self.stats.mem = {
+            21: 100.0,
+            22: 100.0,
+            23: 100.0,
+        }
+
+        self.selector.set_failed_server(21)
+        self.assertEqual([21], self.stats.notify_calls)
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(True, ok)
+
+        # set again
+        self.selector.set_failed_server(21)
+        self.assertEqual([21], self.stats.notify_calls)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 500000
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(23, server_id)
+        self.assertEqual(True, ok)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 499999
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(True, ok)
+
+    def test_set_failed_for_all(self) -> None:
+        self.assertEqual(1000000, RAND_MAX)
+
+        self.stats.mem = {
+            21: 100.0,
+            22: 100.0,
+            23: 100.0,
+        }
+
+        self.selector.set_failed_server(21)
+        self.selector.set_failed_server(22)
+        self.selector.set_failed_server(23)
+        self.selector.set_failed_server(21)
+
+        self.assertEqual([21, 22, 23], self.stats.notify_calls)
+
+        self.rand_val = 0
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(21, server_id)
+        self.assertEqual(False, ok)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 333334
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(False, ok)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 666667
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(23, server_id)
+        self.assertEqual(False, ok)
+
+    def test_rand_val_too_big(self) -> None:
+        self.assertEqual(1000000, RAND_MAX)
+
+        self.rand_val = RAND_MAX + 1
+        self.stats.mem = {
+            21: 100.0,
+            22: 100.0,
+            23: 100.0,
+        }
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(23, server_id)
+        self.assertEqual(True, ok)
