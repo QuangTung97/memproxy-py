@@ -75,7 +75,7 @@ class TestReplicatedSelector(unittest.TestCase):
         self.assertEqual(True, ok)
 
         # select again
-        self.selector = self.route.new_selector()
+        self.selector.reset()
         self.rand_val = 666667
 
         server_id, ok = self.selector.select_server('key01')
@@ -84,3 +84,79 @@ class TestReplicatedSelector(unittest.TestCase):
 
         self.assertEqual([21, 22, 23] * 3, self.stats.get_calls)
         self.assertEqual([RAND_MAX] * 3, self.rand_calls)
+
+    def test_choose_servers_with_min_percent(self) -> None:
+        self.assertEqual(1000000, RAND_MAX)
+
+        self.rand_val = 494999
+        self.stats.mem = {
+            21: 100.0,
+            22: 0.0,  # -> x = 2.02
+            23: 100.0,
+        }
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(21, server_id)
+        self.assertEqual(True, ok)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 495000
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(True, ok)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 505000
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(23, server_id)
+        self.assertEqual(True, ok)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 504999
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(True, ok)
+
+    def test_choose_servers_with_multiple_min_percent(self) -> None:
+        self.assertEqual(1000000, RAND_MAX)
+
+        self.rand_val = 980000
+        self.stats.mem = {
+            21: 1000.0,
+            22: 0.0,  # -> x 10.204
+            23: 0.0,
+        }
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(21, server_id)
+        self.assertEqual(True, ok)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 980001
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(True, ok)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 990000
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(23, server_id)
+        self.assertEqual(True, ok)
+
+        # select again
+        self.selector.reset()
+        self.rand_val = 989999
+
+        server_id, ok = self.selector.select_server('key01')
+        self.assertEqual(22, server_id)
+        self.assertEqual(True, ok)

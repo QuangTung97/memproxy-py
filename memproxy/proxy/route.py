@@ -20,6 +20,9 @@ class Selector(Protocol):
     @abstractmethod
     def select_servers_for_delete(self) -> List[int]: pass
 
+    @abstractmethod
+    def reset(self) -> None: pass
+
 
 class Route(Protocol):
     @abstractmethod

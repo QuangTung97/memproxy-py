@@ -34,6 +34,8 @@ class ReplicatedSelector:
             pass
 
         recompute_weights_with_min_percent(weights, 1.0)
+
+        # accumulate
         for i in range(1, len(weights)):
             weights[i] = weights[i - 1] + weights[i]
 
@@ -45,11 +47,12 @@ class ReplicatedSelector:
         chosen_weight = max_weight * pos
 
         for i in range(len(weights)):
-            if weights[i] >= chosen_weight:
+            if weights[i] > chosen_weight:
                 self._chosen_server = remaining[i]
-                break
+                return True
 
-        return True
+        self._chosen_server = remaining[-1]
+        return False
 
     def set_failed_server(self, server_id: int) -> None:
         pass
@@ -69,6 +72,9 @@ class ReplicatedSelector:
             result.append(server_id)
         return result
 
+    def reset(self) -> None:
+        self._chosen_server = None
+
 
 RAND_MAX = 1_000_000
 RandFunc = Callable[[int], int]  # (n) -> int, random from 0 -> n - 1
@@ -79,12 +85,17 @@ class _RouteConfig:
     servers: List[int]
     stats: Stats
     rand: RandFunc
+    min_percent: float
 
 
 class ReplicatedRoute:
     _conf: _RouteConfig
 
-    def __init__(self, server_ids: List[int], stats: Stats, rand: RandFunc = random.randrange):
+    def __init__(
+            self, server_ids: List[int], stats: Stats,
+            rand: RandFunc = random.randrange,
+            min_percent: float = 1.0,
+    ):
         if len(server_ids) == 0:
             raise ValueError("server_ids must not be empty")
 
@@ -92,6 +103,7 @@ class ReplicatedRoute:
             servers=server_ids,
             stats=stats,
             rand=rand,
+            min_percent=min_percent,
         )
 
     def new_selector(self) -> Selector:
@@ -99,4 +111,18 @@ class ReplicatedRoute:
 
 
 def recompute_weights_with_min_percent(weights: List[float], min_percent: float) -> None:
-    pass
+    total = 0.0
+    for w in weights:
+        total += w
+
+    k = 0
+    minimum = total * min_percent / 100
+    for w in weights:
+        if w < minimum:
+            k += 1
+
+    new_weight = total / (100.0 - float(k) * min_percent)
+    for i in range(len(weights)):
+        w = weights[i]
+        if w < minimum:
+            weights[i] = new_weight
