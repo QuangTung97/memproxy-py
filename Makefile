@@ -18,10 +18,11 @@ item-profile:
 	python3 -m pstats test/item.stats
 
 build-dist:
+	rm -rf ./dist
 	python3 setup.py sdist
 
 upload:
-	twine upload dist/*
+	twine upload -r pypi dist/*
 
 install-tools:
 	pip3 install mypy
