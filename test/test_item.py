@@ -10,7 +10,9 @@ from typing import List, Union
 import redis
 
 from memproxy import Item, RedisClient, Promise, new_json_codec, ItemCodec, new_multi_get_filler
+from memproxy import LeaseGetResult
 from memproxy import Pipeline, Session, DeleteResponse, LeaseSetResponse, LeaseGetResponse, FillerFunc
+from memproxy.memproxy import LeaseGetResultFunc
 
 
 @dataclass
@@ -41,15 +43,15 @@ class CapturedPipeline(Pipeline):
         self.get_keys = []
         self.set_inputs = []
 
-    def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
+    def lease_get(self, key: str) -> LeaseGetResult:
         self.get_keys.append(key)
         fn = self.pipe.lease_get(key)
 
         def lease_get_func() -> LeaseGetResponse:
             self.get_keys.append(f'{key}:func')
-            return fn()
+            return fn.result()
 
-        return lease_get_func
+        return LeaseGetResultFunc(lease_get_func)
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
         self.set_inputs.append(SetInput(key, cas, data))

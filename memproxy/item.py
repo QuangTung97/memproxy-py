@@ -4,7 +4,8 @@ import logging
 from dataclasses import dataclass
 from typing import Generic, TypeVar, Callable, Any, List, Optional, Dict
 
-from .memproxy import Promise, Pipeline, Session, LeaseGetResponse, LeaseGetStatus
+from .memproxy import LeaseGetResult
+from .memproxy import Promise, Pipeline, Session, LeaseGetStatus
 
 T = TypeVar("T")
 K = TypeVar("K")
@@ -41,7 +42,7 @@ class _ItemState(Generic[T, K]):
 
     key: K
     key_str: str
-    lease_get_fn: Promise[LeaseGetResponse]
+    lease_get_fn: LeaseGetResult
     cas: int
 
     result: T
@@ -79,7 +80,7 @@ class _ItemState(Generic[T, K]):
         self.sess.add_next_call(self._handle_fill_fn)
 
     def next_fn(self) -> None:
-        get_resp = self.lease_get_fn()
+        get_resp = self.lease_get_fn.result()
 
         if get_resp.status == LeaseGetStatus.FOUND:
             try:

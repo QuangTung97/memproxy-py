@@ -66,7 +66,7 @@ class LeaseGetResultFunc:
 
 class Pipeline(Protocol):
     @abstractmethod
-    def lease_get(self, key: str) -> Promise[LeaseGetResponse]: pass
+    def lease_get(self, key: str) -> LeaseGetResult: pass
 
     @abstractmethod
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]: pass

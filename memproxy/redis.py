@@ -8,8 +8,10 @@ import redis
 from redis.commands.core import Script
 
 from .memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from .memproxy import LeaseGetResult
 from .memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
 from .memproxy import Pipeline, Promise
+from .pool import ObjectPool
 from .session import Session
 
 LEASE_GET_SCRIPT = """
@@ -179,6 +181,66 @@ CAS_PREFIX = b'cas:'
 VAL_PREFIX = b'val:'
 
 
+class _RedisGetResult:
+    pipe: RedisPipeline
+    state: RedisPipelineState
+    index: int
+
+    def __init__(self, pipe: RedisPipeline, state: RedisPipelineState, index: int):
+        self.pipe = pipe
+        self.state = state
+        self.index = index
+
+    def result(self) -> LeaseGetResponse:
+        self.pipe.execute(self.state)
+
+        if self.state.redis_error is not None:
+            get_result_pool.put(self)
+            return LeaseGetResponse(
+                status=LeaseGetStatus.ERROR,
+                cas=0,
+                data=b'',
+                error=f'Redis Get: {self.state.redis_error}'
+            )
+
+        get_resp = self.state.get_result[self.index]
+        get_result_pool.put(self)
+
+        if get_resp.startswith(CAS_PREFIX):
+            num_str = get_resp[len(CAS_PREFIX):].decode()
+            if not num_str.isnumeric():
+                return LeaseGetResponse(
+                    status=LeaseGetStatus.ERROR,
+                    cas=0,
+                    data=b'',
+                    error=f'Value "{num_str}" is not a number'
+                )
+
+            cas = int(num_str)
+            return LeaseGetResponse(
+                status=LeaseGetStatus.LEASE_GRANTED,
+                cas=cas,
+                data=b'',
+            )
+        else:
+            get_val = get_resp
+            if get_val.startswith(VAL_PREFIX):
+                get_val = get_resp[len(VAL_PREFIX):]
+
+            return LeaseGetResponse(
+                status=LeaseGetStatus.FOUND,
+                cas=0,
+                data=get_val,
+            )
+
+
+get_result_pool = ObjectPool[_RedisGetResult](clazz=_RedisGetResult)
+
+
+def new_get_result(pipe: RedisPipeline, state: RedisPipelineState, index: int) -> _RedisGetResult:
+    return get_result_pool.get(pipe, state, index)
+
+
 class RedisPipeline:
     client: redis.Redis
     get_script: Script
@@ -218,55 +280,17 @@ class RedisPipeline:
             self._state = RedisPipelineState(self)
         return self._state
 
-    def _execute(self, state: RedisPipelineState):
+    def execute(self, state: RedisPipelineState):
         if not state.completed:
             state.execute()
             self._state = None
 
-    def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
+    def lease_get(self, key: str) -> LeaseGetResult:
         state = self._get_state()
         index = state.add_get_op(key)
 
-        def lease_get_fn() -> LeaseGetResponse:
-            self._execute(state)
-
-            if state.redis_error is not None:
-                return LeaseGetResponse(
-                    status=LeaseGetStatus.ERROR,
-                    cas=0,
-                    data=b'',
-                    error=f'Redis Get: {state.redis_error}'
-                )
-
-            get_resp = state.get_result[index]
-            if get_resp.startswith(CAS_PREFIX):
-                num_str = get_resp[len(CAS_PREFIX):].decode()
-                if not num_str.isnumeric():
-                    return LeaseGetResponse(
-                        status=LeaseGetStatus.ERROR,
-                        cas=0,
-                        data=b'',
-                        error=f'Value "{num_str}" is not a number'
-                    )
-
-                cas = int(num_str)
-                return LeaseGetResponse(
-                    status=LeaseGetStatus.LEASE_GRANTED,
-                    cas=cas,
-                    data=b'',
-                )
-            else:
-                get_val = get_resp
-                if get_val.startswith(VAL_PREFIX):
-                    get_val = get_resp[len(VAL_PREFIX):]
-
-                return LeaseGetResponse(
-                    status=LeaseGetStatus.FOUND,
-                    cas=0,
-                    data=get_val,
-                )
-
-        return lease_get_fn
+        result = new_get_result(pipe=self, state=state, index=index)
+        return result
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
         state = self._get_state()
@@ -276,7 +300,7 @@ class RedisPipeline:
         index = state.add_set_op(key=key, cas=cas, val=data, ttl=ttl)
 
         def lease_set_fn() -> LeaseSetResponse:
-            self._execute(state)
+            self.execute(state)
 
             if state.redis_error is not None:
                 return LeaseSetResponse(
@@ -302,7 +326,7 @@ class RedisPipeline:
         index = state.add_delete_op(key)
 
         def delete_fn() -> DeleteResponse:
-            self._execute(state)
+            self.execute(state)
             if state.redis_error is not None:
                 return DeleteResponse(
                     status=DeleteStatus.ERROR,
@@ -320,7 +344,7 @@ class RedisPipeline:
 
     def finish(self) -> None:
         if self._state is not None:
-            self._execute(self._state)
+            self.execute(self._state)
 
     def __enter__(self):
         return self
