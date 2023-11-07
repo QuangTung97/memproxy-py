@@ -100,14 +100,14 @@ class _ItemState(Generic[T, K]):
 class Item(Generic[T, K]):
     _pipe: Pipeline
     _sess: Session
-    _key_fn: KeyNameFunc
-    _codec: ItemCodec
-    _filler: FillerFunc
+    _key_fn: KeyNameFunc[K]
+    _codec: ItemCodec[T]
+    _filler: FillerFunc[K, T]
 
     def __init__(
             self, pipe: Pipeline,
-            key_fn: KeyNameFunc, filler: FillerFunc,
-            codec: ItemCodec,
+            key_fn: Callable[[K], str], filler: Callable[[K], Promise[T]],
+            codec: ItemCodec[T],
     ):
         self._pipe = pipe
         self._sess = pipe.lower_session()
