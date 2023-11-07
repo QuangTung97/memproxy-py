@@ -4,6 +4,8 @@ from typing import List, Optional
 from memproxy import DeleteStatus
 from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from memproxy import Session, Pipeline, LeaseSetStatus
+from memproxy import LeaseGetResult
+from memproxy.memproxy import LeaseGetResultFunc
 
 
 @dataclass
@@ -38,7 +40,7 @@ class PipelineFake:
         self.set_calls = []
         self.finish_calls = 0
 
-    def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
+    def lease_get(self, key: str) -> LeaseGetResult:
         index = len(self.get_keys)
         self.get_keys.append(key)
 
@@ -50,7 +52,7 @@ class PipelineFake:
             global_actions.append(f'{key}:func')
             return self.get_results[index]
 
-        return get_func
+        return LeaseGetResultFunc(get_func)
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
         self.set_calls.append(SetInput(

@@ -13,7 +13,7 @@ class ObjectPool(Generic[T]):
         self._cls = clazz
         self._max_size = max_size
 
-    def get(self, *args, **kwargs) -> T:
+    def get(self, *args, **kwargs):
         if len(self._objects) == 0:
             return self._cls(*args, **kwargs)
 

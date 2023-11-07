@@ -1,8 +1,10 @@
 from typing import Dict, List, Callable, Optional
 
+from memproxy import LeaseGetResult
 from memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
 from memproxy import Pipeline, CacheClient, Session
 from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from memproxy.pool import ObjectPool
 from .route import Selector, Route
 
 
@@ -95,7 +97,7 @@ class _LeaseGetState:
 
     pipe: Pipeline
 
-    fn: Promise[LeaseGetResponse]
+    fn: LeaseGetResult
 
     resp: LeaseGetResponse
 
@@ -111,11 +113,11 @@ class _LeaseGetState:
         self.fn = self.pipe.lease_get(key)
 
     def _handle_resp(self):
-        self.resp = self.fn()
+        self.resp = self.fn.result()
         if self.resp.status == LeaseGetStatus.LEASE_GRANTED:
             self.conf.add_set_server(self.key, self.server_id)
 
-    def next_func(self) -> None:
+    def __call__(self) -> None:
         self._handle_resp()
 
         if self.resp.status != LeaseGetStatus.ERROR:
@@ -135,10 +137,18 @@ class _LeaseGetState:
 
         self.conf.sess.add_next_call(next_again_func)
 
-    def return_func(self) -> LeaseGetResponse:
+    def result(self) -> LeaseGetResponse:
         self.conf.execute()
+        resp = self.resp
+        lease_get_pool.put(self)
+        return resp
 
-        return self.resp
+
+lease_get_pool = ObjectPool[_LeaseGetState](clazz=_LeaseGetState)
+
+
+def new_get_state(conf: _PipelineConfig, key: str) -> _LeaseGetState:
+    return lease_get_pool.get(conf, key)
 
 
 class _LeaseSetState:
@@ -164,15 +174,14 @@ class ProxyPipeline:
     def __init__(self, conf: _ClientConfig, sess: Optional[Session]):
         self._conf = _PipelineConfig(conf=conf, sess=sess)
 
-    def lease_get(self, key: str) -> Promise[LeaseGetResponse]:
-        state = _LeaseGetState(
+    def lease_get(self, key: str) -> LeaseGetResult:
+        state = new_get_state(
             conf=self._conf,
             key=key,
         )
 
-        self._conf.sess.add_next_call(state.next_func)
-
-        return state.return_func
+        self._conf.sess.add_next_call(state)
+        return state
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
         server_id = self._conf.get_set_server(key)

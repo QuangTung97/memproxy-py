@@ -62,7 +62,7 @@ class TestProxy(unittest.TestCase):
         )
         pipe1.get_results = [resp1]
 
-        result = fn()
+        result = fn.result()
         self.assertEqual(resp1, result)
 
         self.assertEqual(['key01', 'key01:func'], pipe1.actions)
@@ -91,9 +91,9 @@ class TestProxy(unittest.TestCase):
         pipe1 = self.clients[21].pipe
         pipe1.get_results = [resp1, resp2, resp3]
 
-        self.assertEqual(resp1, fn1())
-        self.assertEqual(resp2, fn2())
-        self.assertEqual(resp3, fn3())
+        self.assertEqual(resp1, fn1.result())
+        self.assertEqual(resp2, fn2.result())
+        self.assertEqual(resp3, fn3.result())
 
         self.assertEqual([
             'key01', 'key02', 'key03',
@@ -121,7 +121,7 @@ class TestProxy(unittest.TestCase):
         pipe2 = self.clients[22].pipe
         pipe2.get_results = [resp2]
 
-        self.assertEqual(resp2, fn())
+        self.assertEqual(resp2, fn.result())
 
         self.assertEqual(['key01', 'key01:func'], pipe1.actions)
         self.assertEqual(['key01', 'key01:func'], pipe2.actions)
@@ -143,7 +143,7 @@ class TestProxy(unittest.TestCase):
         pipe1 = self.clients[23].pipe
         pipe1.get_results = [resp1]
 
-        self.assertEqual(resp1, fn())
+        self.assertEqual(resp1, fn.result())
 
         self.assertEqual(['key01', 'key01:func'], pipe1.actions)
 
@@ -158,7 +158,7 @@ class TestProxy(unittest.TestCase):
         pipe1.get_results = [resp1]
 
         fn1 = self.pipe.lease_get('key01')
-        self.assertEqual(resp1, fn1())
+        self.assertEqual(resp1, fn1.result())
 
         set_fn1 = self.pipe.lease_set('key01', resp1.cas, b'data 01')
         self.assertEqual(LeaseSetResponse(LeaseSetStatus.OK), set_fn1())
@@ -196,7 +196,7 @@ class TestProxy(unittest.TestCase):
         pipe1.get_results = [resp1, resp2]
 
         fn1 = self.pipe.lease_get('key01')
-        self.assertEqual(resp1, fn1())
+        self.assertEqual(resp1, fn1.result())
 
         # get again switch to another server
         resp3 = LeaseGetResponse(
@@ -209,7 +209,7 @@ class TestProxy(unittest.TestCase):
         pipe2.get_results = [resp3]
 
         fn2 = self.pipe.lease_get('key01')
-        self.assertEqual(resp3, fn2())
+        self.assertEqual(resp3, fn2.result())
 
         # lease set should fail
         set_fn1 = self.pipe.lease_set('key01', resp1.cas, b'data 01')

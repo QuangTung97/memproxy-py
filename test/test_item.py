@@ -315,7 +315,7 @@ class TestItemBenchmark(unittest.TestCase):
             self.skipTest('Default not run')
 
         with cProfile.Profile() as pr:
-            num_loops = 1000
+            num_loops = 2000
             for i in range(num_loops):
                 self.run_multi_get()
 
