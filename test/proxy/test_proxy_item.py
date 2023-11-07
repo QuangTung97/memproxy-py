@@ -169,4 +169,4 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
             self.run_multi_get()
 
         duration = time.time() - start
-        print(f'AVG PROXY ITEM DURATION: {duration * 1000 / num_loops}ms')
+        print(f'[MEMORY ONLY] AVG PROXY ITEM DURATION: {duration * 1000 / num_loops}ms')

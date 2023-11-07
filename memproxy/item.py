@@ -96,6 +96,10 @@ class _ItemState(Generic[T, K]):
 
         self._handle_filling()
 
+    def result_func(self) -> T:
+        self.sess.execute()
+        return self.result
+
 
 class Item(Generic[T, K]):
     _pipe: Pipeline
@@ -115,7 +119,7 @@ class Item(Generic[T, K]):
         self._filler = filler
         self._codec = codec
 
-    def get(self, key: K) -> Promise[T]:
+    def _get_fast(self, key: K) -> _ItemState[T, K]:
         state = _ItemState[T, K](
             pipe=self._pipe,
             sess=self._sess,
@@ -128,24 +132,23 @@ class Item(Generic[T, K]):
         state.lease_get_fn = self._pipe.lease_get(state.key_str)
 
         self._sess.add_next_call(state.next_fn)
+        return state
 
-        def get_fn() -> T:
-            state.sess.execute()
-            return state.result
-
-        return get_fn
+    def get(self, key: K) -> Promise[T]:
+        state = self._get_fast(key)
+        return state.result_func
 
     def get_multi(self, keys: List[K]) -> Promise[List[T]]:
-        fn_list: List[Promise[T]] = []
+        states: List[_ItemState[T, K]] = []
 
         for k in keys:
-            fn = self.get(k)
-            fn_list.append(fn)
+            st = self._get_fast(k)
+            states.append(st)
 
         def result_func() -> List[T]:
             result: List[T] = []
-            for item_fn in fn_list:
-                result.append(item_fn())
+            for state in states:
+                result.append(state.result_func())
             return result
 
         return result_func
