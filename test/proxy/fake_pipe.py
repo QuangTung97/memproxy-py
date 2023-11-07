@@ -30,6 +30,7 @@ class PipelineFake:
 
     def __init__(self):
         self.actions = []
+        self.sess = Session()
 
         self.get_keys = []
         self.get_results = []

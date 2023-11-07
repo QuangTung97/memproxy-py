@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="memproxy",
-    version="0.3.0rc1",
+    version="0.3.0rc2",
     license="MIT",
     keywords=["Redis", "key-value store", "caching"],
 
@@ -28,6 +28,6 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    packages=['memproxy'],
+    packages=['memproxy', 'memproxy.proxy'],
     python_requires=">=3.8"
 )

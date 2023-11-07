@@ -8,7 +8,8 @@ from memproxy.proxy import ServerStats
 
 
 def mem_logger(server_id: int, mem: float):
-    print("USAGE =", server_id, mem, datetime.datetime.now())
+    # print("USAGE =", server_id, mem, datetime.datetime.now())
+    pass
 
 
 class TestServerStatsSingleRedis(unittest.TestCase):
