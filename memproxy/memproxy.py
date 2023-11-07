@@ -49,6 +49,21 @@ class DeleteResponse:
     error: Optional[str] = None
 
 
+class LeaseGetResult(Protocol):
+    @abstractmethod
+    def result(self) -> LeaseGetResponse: pass
+
+
+class LeaseGetResultFunc:
+    _fn: Promise[LeaseGetResponse]
+
+    def __init__(self, fn: Promise[LeaseGetResponse]):
+        self._fn = fn
+
+    def result(self) -> LeaseGetResponse:
+        return self._fn()
+
+
 class Pipeline(Protocol):
     @abstractmethod
     def lease_get(self, key: str) -> Promise[LeaseGetResponse]: pass
