@@ -168,6 +168,36 @@ class _LeaseSetState:
         return self.resp
 
 
+class _DeleteState:
+    conf: _PipelineConfig
+
+    fn_list: List[Promise[DeleteResponse]]
+    servers: List[int]
+
+    resp: DeleteResponse
+
+    def __init__(self, conf: _PipelineConfig, fn_list: List[Promise[DeleteResponse]], servers: List[int]):
+        self.conf = conf
+        self.fn_list = fn_list
+        self.servers = servers
+
+    def next_func(self) -> None:
+        resp = DeleteResponse(status=DeleteStatus.NOT_FOUND)
+        for i, resp_fn in enumerate(self.fn_list):
+            new_resp = resp_fn()
+            if new_resp.status == DeleteStatus.OK:
+                resp = new_resp
+            elif new_resp.status == DeleteStatus.ERROR:
+                server_id = self.servers[i]
+                self.conf.selector.set_failed_server(server_id=server_id)
+
+        self.resp = resp
+
+    def return_func(self) -> DeleteResponse:
+        self.conf.execute()
+        return self.resp
+
+
 class ProxyPipeline:
     _conf: _PipelineConfig
 
@@ -209,15 +239,10 @@ class ProxyPipeline:
             fn = pipe.delete(key)
             fn_list.append(fn)
 
-        def delete_func() -> DeleteResponse:
-            resp = DeleteResponse(status=DeleteStatus.NOT_FOUND)
-            for resp_fn in fn_list:
-                new_resp = resp_fn()
-                if new_resp.status == DeleteStatus.OK:
-                    resp = new_resp
-            return resp
+        state = _DeleteState(conf=self._conf, fn_list=fn_list, servers=servers)
+        self._conf.sess.add_next_call(state.next_func)
 
-        return delete_func
+        return state.return_func
 
     def lower_session(self) -> Session:
         return self._conf.sess.get_lower()

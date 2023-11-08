@@ -287,6 +287,86 @@ class TestProxy(unittest.TestCase):
 
         self.assertEqual([], global_actions)
 
+    def test_inner_pipeline_return_error__do_notify_stats(self) -> None:
+        self.stats.failed_servers.add(21)
+
+        pipe2 = self.clients[22].pipe
+        pipe3 = self.clients[23].pipe
+
+        pipe2.delete_resp = DeleteResponse(status=DeleteStatus.ERROR, error='some delete error')
+
+        fn1 = self.pipe.delete('key01')
+
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), fn1())
+
+        self.assertEqual([22], self.stats.notify_calls)
+
+        self.assertEqual([
+            'del key01', 'del key01:func',
+        ], pipe2.actions)
+        self.assertEqual([
+            'del key01', 'del key01:func',
+        ], pipe3.actions)
+
+        self.assertEqual([
+            'del key01', 'del key01',
+            'del key01:func', 'del key01:func',
+        ], global_actions)
+
+    def test_inner_pipeline_all_return_errors(self) -> None:
+        self.stats.failed_servers.add(21)
+
+        pipe2 = self.clients[22].pipe
+        pipe3 = self.clients[23].pipe
+
+        pipe2.delete_resp = DeleteResponse(status=DeleteStatus.ERROR, error='some delete error')
+        pipe3.delete_resp = DeleteResponse(status=DeleteStatus.ERROR, error='some delete error')
+
+        fn1 = self.pipe.delete('key01')
+
+        self.assertEqual(DeleteResponse(status=DeleteStatus.NOT_FOUND), fn1())
+
+        self.assertEqual([22, 23], self.stats.notify_calls)
+
+        self.assertEqual([
+            'del key01', 'del key01:func',
+        ], pipe2.actions)
+        self.assertEqual([
+            'del key01', 'del key01:func',
+        ], pipe3.actions)
+
+        self.assertEqual([
+            'del key01', 'del key01',
+            'del key01:func', 'del key01:func',
+        ], global_actions)
+
+    def test_set_then_delete(self) -> None:
+        self.stats.failed_servers.add(21)
+
+        pipe2 = self.clients[22].pipe
+
+        resp1 = LeaseGetResponse(
+            status=LeaseGetStatus.LEASE_GRANTED,
+            cas=51,
+            data=b'',
+        )
+        pipe2.get_results = [resp1]
+
+        fn = self.pipe.lease_get('key01')
+        self.assertEqual(resp1, fn.result())
+
+        set_fn1 = self.pipe.lease_set('key01', resp1.cas, b'user data 01')
+        delete_fn1 = self.pipe.delete('key01')
+
+        self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.OK), set_fn1())
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), delete_fn1())
+
+        self.assertEqual([
+            'key01', 'key01:func',
+            'set key01', 'del key01', 'del key01',
+            'set key01:func', 'del key01:func', 'del key01:func',
+        ], global_actions)
+
     def test_finish(self) -> None:
         self.pipe.delete('key01')
 

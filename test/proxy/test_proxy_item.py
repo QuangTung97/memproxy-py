@@ -6,7 +6,8 @@ from typing import List
 
 import redis
 
-from memproxy import Item, ItemCodec, LeaseGetResponse, LeaseGetStatus
+from memproxy import DeleteResponse, DeleteStatus
+from memproxy import Item, ItemCodec, LeaseGetResponse, LeaseGetStatus, new_json_codec
 from memproxy import RedisClient, Promise, CacheClient
 from memproxy.proxy import ProxyCacheClient, ReplicatedRoute
 from .fake_pipe import ClientFake
@@ -31,6 +32,12 @@ def user_key_name(user_id: int) -> str:
 
 def decode_user(data: bytes) -> UserTest:
     return UserTest(id=0, name=data.decode())
+
+
+user_codec = ItemCodec(
+    encode=UserTest.encode,
+    decode=decode_user,
+)
 
 
 class TestProxyItemBenchmark(unittest.TestCase):
@@ -77,10 +84,7 @@ class TestProxyItemBenchmark(unittest.TestCase):
         it = Item(
             pipe=pipe,
             key_fn=user_key_name,
-            codec=ItemCodec(
-                encode=UserTest.encode,
-                decode=decode_user,
-            ),
+            codec=user_codec,
             filler=self.filler_func,
         )
 
@@ -149,10 +153,7 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
         it = Item(
             pipe=pipe,
             key_fn=user_key_name,
-            codec=ItemCodec(
-                encode=UserTest.encode,
-                decode=decode_user,
-            ),
+            codec=user_codec,
             filler=self.filler_func,
         )
 
@@ -170,3 +171,113 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
 
         duration = time.time() - start
         print(f'[MEMORY ONLY] AVG PROXY ITEM DURATION: {duration * 1000 / num_loops}ms')
+
+    def test_run_do_init_only(self) -> None:
+        num_loops = 1000
+
+        start = time.time()
+
+        count = 0
+
+        for i in range(num_loops):
+            pipe = self.proxy_client.pipeline()
+
+            it = Item(
+                pipe=pipe,
+                key_fn=user_key_name,
+                codec=user_codec,
+                filler=self.filler_func,
+            )
+            k = it.compute_key_name(10)
+            count += len(k)
+
+        duration = time.time() - start
+        print(f'[MEMORY ONLY] DO INIT ONLY AVG DURATION: {duration * 1000 / num_loops}ms')
+
+
+class TestProxyItem(unittest.TestCase):
+    fill_keys: List[int]
+    prefix: str
+
+    def setUp(self) -> None:
+        self.redis = redis.Redis()
+        self.redis.flushall()
+        self.redis.script_flush()
+
+        self.servers = [21]
+        self.fill_keys = []
+        self.prefix = 'username'
+
+        self.stats = StatsFake()
+        self.stats.mem = {
+            21: 1000,
+        }
+
+        route = ReplicatedRoute(
+            server_ids=self.servers,
+            stats=self.stats,
+        )
+
+        self.proxy_client = ProxyCacheClient(
+            server_ids=self.servers,
+            new_func=self.new_func,
+            route=route,
+        )
+
+        self.pipe = self.proxy_client.pipeline()
+
+        self.it: Item[UserTest, int] = Item(
+            pipe=self.pipe,
+            key_fn=user_key_name,
+            codec=new_json_codec(UserTest),
+            filler=self.filler_func,
+        )
+
+    def new_func(self, _server_id: int) -> CacheClient:
+        return RedisClient(self.redis, max_keys_per_batch=200)
+
+    def filler_func(self, key: int) -> Promise[UserTest]:
+        self.fill_keys.append(key)
+        return lambda: UserTest(id=key, name=f'{self.prefix}:{key}')
+
+    def test_normal(self) -> None:
+        fn = self.it.get_multi([11, 12, 13])
+        users = fn()
+
+        self.assertEqual([
+            UserTest(id=11, name='username:11'),
+            UserTest(id=12, name='username:12'),
+            UserTest(id=13, name='username:13'),
+        ], users)
+
+        self.assertEqual([11, 12, 13], self.fill_keys)
+
+        # get again
+        self.prefix = 'newuser'
+        users = self.it.get_multi([11, 12])()
+
+        self.assertEqual([
+            UserTest(id=11, name='username:11'),
+            UserTest(id=12, name='username:12'),
+        ], users)
+
+        self.assertEqual([11, 12, 13], self.fill_keys)
+
+        # do delete
+        delete_fn1 = self.pipe.delete(self.it.compute_key_name(11))
+        delete_fn2 = self.pipe.delete(self.it.compute_key_name(12))
+
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), delete_fn1())
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), delete_fn2())
+
+        # get again after delete
+        fn = self.it.get_multi([11, 12, 13])
+        users = fn()
+
+        self.assertEqual([
+            UserTest(id=11, name='newuser:11'),
+            UserTest(id=12, name='newuser:12'),
+            UserTest(id=13, name='username:13'),
+        ], users)
+
+        self.assertEqual([11, 12, 13, 11, 12], self.fill_keys)

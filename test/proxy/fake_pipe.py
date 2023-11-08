@@ -2,9 +2,9 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from memproxy import DeleteStatus
+from memproxy import LeaseGetResult
 from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from memproxy import Session, Pipeline, LeaseSetStatus
-from memproxy import LeaseGetResult
 from memproxy.memproxy import LeaseGetResultFunc
 
 
@@ -30,6 +30,12 @@ class PipelineFake:
 
     finish_calls: int
 
+    delete_resp: DeleteResponse
+
+    def append_action(self, action: str):
+        self.actions.append(action)
+        global_actions.append(action)
+
     def __init__(self):
         self.actions = []
         self.sess = Session()
@@ -40,16 +46,16 @@ class PipelineFake:
         self.set_calls = []
         self.finish_calls = 0
 
+        self.delete_resp = DeleteResponse(status=DeleteStatus.OK)
+
     def lease_get(self, key: str) -> LeaseGetResult:
         index = len(self.get_keys)
         self.get_keys.append(key)
 
-        self.actions.append(key)
-        global_actions.append(key)
+        self.append_action(key)
 
         def get_func():
-            self.actions.append(f'{key}:func')
-            global_actions.append(f'{key}:func')
+            self.append_action(f'{key}:func')
             return self.get_results[index]
 
         return LeaseGetResultFunc(get_func)
@@ -61,22 +67,20 @@ class PipelineFake:
             val=data,
         ))
 
-        self.actions.append(f'set {key}')
+        self.append_action(f'set {key}')
 
         def set_func() -> LeaseSetResponse:
-            self.actions.append(f'set {key}:func')
+            self.append_action(f'set {key}:func')
             return LeaseSetResponse(status=LeaseSetStatus.OK)
 
         return set_func
 
     def delete(self, key: str) -> Promise[DeleteResponse]:
-        self.actions.append(f'del {key}')
-        global_actions.append(f'del {key}')
+        self.append_action(f'del {key}')
 
         def delete_func() -> DeleteResponse:
-            self.actions.append(f'del {key}:func')
-            global_actions.append(f'del {key}:func')
-            return DeleteResponse(status=DeleteStatus.OK)
+            self.append_action(f'del {key}:func')
+            return self.delete_resp
 
         return delete_func
 
