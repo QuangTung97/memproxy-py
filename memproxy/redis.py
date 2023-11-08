@@ -227,9 +227,9 @@ class _RedisGetResult:
                 get_val = get_resp[len(VAL_PREFIX):]
 
             return LeaseGetResponse(
-                status=LeaseGetStatus.FOUND,
-                cas=0,
-                data=get_val,
+                LeaseGetStatus.FOUND,
+                get_val,
+                0,
             )
 
 

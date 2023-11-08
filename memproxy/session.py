@@ -27,12 +27,12 @@ class Session:
             higher.execute()
 
         while True:
+            if not self._is_dirty:
+                return
+
             call_list = self._next_calls
             self._next_calls = []
             self._is_dirty = False
-
-            if len(call_list) == 0:
-                return
 
             for fn in call_list:
                 fn()

@@ -100,7 +100,7 @@ class TestProxyItemBenchmark(unittest.TestCase):
         self.run_multi_get()
         self.total_duration = datetime.timedelta(0)
 
-        num_loops = 10
+        num_loops = 100
         for i in range(num_loops):
             self.run_multi_get()
 
@@ -159,7 +159,7 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
         _users = fn()
 
     def test_run_benchmark_proxy(self) -> None:
-        num_loops = 2000
+        num_loops = 200
 
         start = time.time()
 
@@ -170,7 +170,7 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
         print(f'[MEMORY ONLY] AVG PROXY ITEM DURATION: {duration * 1000 / num_loops}ms')
 
     def test_run_do_init_only(self) -> None:
-        num_loops = 1000
+        num_loops = 10000
 
         start = time.time()
 
