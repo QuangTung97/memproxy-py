@@ -120,6 +120,9 @@ class TestItemIntegration(unittest.TestCase):
 
         self.assertEqual([21], self.fill_keys)
 
+        self.assertEqual(0, it.hit_count)
+        self.assertEqual(1, it.fill_count)
+
         # Get Again
         user_fn = it.get(21)
         u = user_fn()
@@ -127,6 +130,21 @@ class TestItemIntegration(unittest.TestCase):
 
         self.assertEqual('user:23', it.compute_key_name(23))
         self.assertEqual([21], self.fill_keys)
+
+        self.assertEqual(1, it.hit_count)
+        self.assertEqual(1, it.fill_count)
+
+        # Get Again on more time
+        user_fn = it.get(21)
+        u = user_fn()
+        self.assertEqual(UserTest(id=21, name='user-data:21', age=81), u)
+
+        self.assertEqual('user:23', it.compute_key_name(23))
+        self.assertEqual([21], self.fill_keys)
+
+        self.assertEqual(2, it.hit_count)
+        self.assertEqual(1, it.fill_count)
+        self.assertEqual(0, it.cache_error_count)
 
     def test_get_multi(self) -> None:
         it = self.it
@@ -153,6 +171,9 @@ class TestItemIntegration(unittest.TestCase):
             'user:23:func',
         ], self.pipe.set_inputs)
 
+        self.assertEqual(0, it.hit_count)
+        self.assertEqual(3, it.fill_count)
+
         # Get Again
         user_fn1 = it.get(21)
         user_fn2 = it.get(22)
@@ -169,6 +190,9 @@ class TestItemIntegration(unittest.TestCase):
                 'user:21:func', 'user:22:func', 'user:23:func',
             ] * 2,
             self.pipe.get_keys)
+
+        self.assertEqual(3, it.hit_count)
+        self.assertEqual(3, it.fill_count)
 
         # Do Delete
         delete_fn1 = self.pipe.delete(it.compute_key_name(21))
@@ -191,6 +215,9 @@ class TestItemIntegration(unittest.TestCase):
         self.assertEqual(UserTest(id=23, name='user-data:23', age=91), user_fn3())
 
         self.assertEqual([21, 22, 23, 21, 22, 23], self.fill_keys)
+
+        self.assertEqual(3, it.hit_count)
+        self.assertEqual(6, it.fill_count)
 
     def test_get_decode_error(self) -> None:
         codec: ItemCodec[UserTest] = new_json_codec(UserTest)
@@ -216,12 +243,20 @@ class TestItemIntegration(unittest.TestCase):
         self.assertTrue(isinstance(set_input, SetInput))
         if isinstance(set_input, SetInput):
             self.assertEqual('user:21', set_input.key)
+            self.assertEqual(1, set_input.cas)
 
         self.assertEqual('user:21:func', self.pipe.set_inputs[1])
 
         # Get Again
         user_fn = it.get(21)
         self.assertEqual(UserTest(id=21, name='user-data:21', age=81), user_fn())
+
+        self.assertEqual(2, len(self.pipe.set_inputs))
+
+        self.assertEqual(1, it.hit_count)
+        self.assertEqual(2, it.fill_count)
+        self.assertEqual(0, it.cache_error_count)
+        self.assertEqual(1, it.decode_error_count)
 
 
 class TestItemRedisError(unittest.TestCase):
@@ -259,6 +294,10 @@ class TestItemRedisError(unittest.TestCase):
 
         self.assertEqual([21], self.fill_keys)
         self.assertEqual([], self.pipe.set_inputs)
+
+        self.assertEqual(0, it.hit_count)
+        self.assertEqual(1, it.fill_count)
+        self.assertEqual(1, it.cache_error_count)
 
 
 class TestItemBenchmark(unittest.TestCase):
