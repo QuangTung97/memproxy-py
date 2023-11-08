@@ -19,9 +19,6 @@ class UserTest:
     id: int
     name: str
 
-    def get_id(self) -> int:
-        return self.id
-
     def encode(self) -> bytes:
         return self.name.encode()
 
@@ -281,3 +278,23 @@ class TestProxyItem(unittest.TestCase):
         ], users)
 
         self.assertEqual([11, 12, 13, 11, 12], self.fill_keys)
+
+    def test_with(self):
+        with self.proxy_client.pipeline() as pipe:
+            it = Item(
+                pipe=pipe,
+                key_fn=user_key_name,
+                codec=new_json_codec(UserTest),
+                filler=self.filler_func,
+            )
+
+            fn = it.get_multi([11, 12, 13])
+            users = fn()
+
+            self.assertEqual([
+                UserTest(id=11, name='username:11'),
+                UserTest(id=12, name='username:12'),
+                UserTest(id=13, name='username:13'),
+            ], users)
+
+            self.assertEqual([11, 12, 13], self.fill_keys)
