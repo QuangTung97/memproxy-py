@@ -159,7 +159,7 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
         _users = fn()
 
     def test_run_benchmark_proxy(self) -> None:
-        num_loops = 100
+        num_loops = 2000
 
         start = time.time()
 

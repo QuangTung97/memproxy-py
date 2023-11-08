@@ -11,7 +11,6 @@ from .memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from .memproxy import LeaseGetResult
 from .memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
 from .memproxy import Pipeline, Promise
-from .pool import ObjectPool
 from .session import Session
 
 LEASE_GET_SCRIPT = """
@@ -195,7 +194,7 @@ class _RedisGetResult:
         self.pipe.execute(self.state)
 
         if self.state.redis_error is not None:
-            get_result_pool.put(self)
+            release_get_result(self)
             return LeaseGetResponse(
                 status=LeaseGetStatus.ERROR,
                 cas=0,
@@ -204,7 +203,7 @@ class _RedisGetResult:
             )
 
         get_resp = self.state.get_result[self.index]
-        get_result_pool.put(self)
+        release_get_result(self)
 
         if get_resp.startswith(CAS_PREFIX):
             num_str = get_resp[len(CAS_PREFIX):].decode()
@@ -234,11 +233,21 @@ class _RedisGetResult:
             )
 
 
-get_result_pool = ObjectPool[_RedisGetResult](clazz=_RedisGetResult)
+get_result_pool: List[_RedisGetResult] = []
 
 
 def new_get_result(pipe: RedisPipeline, state: RedisPipelineState, index: int) -> _RedisGetResult:
-    return get_result_pool.get(pipe, state, index)
+    if len(get_result_pool) == 0:
+        return _RedisGetResult(pipe, state, index)
+    e = get_result_pool.pop()
+    e.__init__(pipe, state, index)  # type: ignore
+    return e
+
+
+def release_get_result(r: _RedisGetResult):
+    if len(get_result_pool) >= 4096:
+        return
+    get_result_pool.append(r)
 
 
 class RedisPipeline:

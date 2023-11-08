@@ -4,7 +4,6 @@ from memproxy import LeaseGetResult
 from memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
 from memproxy import Pipeline, CacheClient, Session
 from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse
-from memproxy.pool import ObjectPool
 from .route import Selector, Route
 
 
@@ -140,15 +139,25 @@ class _LeaseGetState:
     def result(self) -> LeaseGetResponse:
         self.conf.execute()
         resp = self.resp
-        lease_get_pool.put(self)
+        release_get_state(self)
         return resp
 
 
-lease_get_pool = ObjectPool[_LeaseGetState](clazz=_LeaseGetState)
+get_state_pool: List[_LeaseGetState] = []
 
 
 def new_get_state(conf: _PipelineConfig, key: str) -> _LeaseGetState:
-    return lease_get_pool.get(conf, key)
+    if len(get_state_pool) == 0:
+        return _LeaseGetState(conf, key)
+    e = get_state_pool.pop()
+    e.__init__(conf, key)  # type: ignore
+    return e
+
+
+def release_get_state(state: _LeaseGetState):
+    if len(get_state_pool) >= 4096:
+        return
+    get_state_pool.append(state)
 
 
 class _LeaseSetState:
