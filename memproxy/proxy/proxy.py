@@ -28,7 +28,7 @@ class _LeaseSetServer:
 
 
 class _PipelineConfig:
-    __slots__ = ('conf', 'sess', 'pipe_sess', 'selector', '_pipelines', '_set_servers')
+    __slots__ = ('conf', 'sess', 'pipe_sess', 'selector', '_pipelines', '_set_servers', 'pipe', 'server_id')
 
     conf: _ClientConfig
     sess: Session
@@ -38,6 +38,9 @@ class _PipelineConfig:
     _pipelines: Dict[int, Pipeline]
 
     _set_servers: Optional[Dict[str, _LeaseSetServer]]
+
+    pipe: Optional[Pipeline]
+    server_id: Optional[int]
 
     def __init__(self, conf: _ClientConfig, sess: Optional[Session]):
         self.conf = conf
@@ -54,6 +57,9 @@ class _PipelineConfig:
 
         self._set_servers = None
 
+        self.pipe = None
+        self.server_id = None
+
     def get_pipeline(self, server_id: int) -> Pipeline:
         pipe = self._pipelines.get(server_id)
         if pipe:
@@ -61,6 +67,7 @@ class _PipelineConfig:
 
         new_pipe = self.conf.clients[server_id].pipeline(sess=self.pipe_sess)
         self._pipelines[server_id] = new_pipe
+        self.pipe = new_pipe
         return new_pipe
 
     def _get_servers(self) -> Dict[str, _LeaseSetServer]:
@@ -87,9 +94,10 @@ class _PipelineConfig:
         return state.server_id
 
     def execute(self):
-        if self.sess.is_dirty:
-            self.sess.execute()
-            self.selector.reset()
+        self.pipe = None
+        self.server_id = None
+        self.sess.execute()
+        self.selector.reset()
 
     def finish(self):
         for server_id in self._pipelines:
@@ -113,10 +121,15 @@ class _LeaseGetState:
         self.conf = conf
         self.key = key
 
-        server_id, _ = conf.selector.select_server(key)
-        self.server_id = server_id
+        if conf.pipe:
+            self.pipe = conf.pipe
+            self.server_id = conf.server_id  # type: ignore
+        else:
+            server_id, _ = conf.selector.select_server(key)
+            self.server_id = server_id
+            conf.server_id = server_id
 
-        self.pipe = conf.get_pipeline(server_id)
+            self.pipe = conf.get_pipeline(server_id)
 
         self.fn = self.pipe.lease_get(key)
 
@@ -126,9 +139,13 @@ class _LeaseGetState:
             self.conf.add_set_server(self.key, self.server_id)
 
     def __call__(self) -> None:
-        self._handle_resp()
+        self.resp = self.fn.result()
 
-        if self.resp[0] != 3:
+        if self.resp[0] == 1:
+            return
+
+        if self.resp[0] == 2:
+            self.conf.add_set_server(self.key, self.server_id)
             return
 
         self.conf.selector.set_failed_server(self.server_id)
@@ -136,6 +153,7 @@ class _LeaseGetState:
         self.server_id, ok = self.conf.selector.select_server(self.key)
         if not ok:
             return
+        self.conf.server_id = self.server_id
 
         pipe = self.conf.get_pipeline(self.server_id)
         self.fn = pipe.lease_get(self.key)
@@ -146,27 +164,18 @@ class _LeaseGetState:
         self.conf.sess.add_next_call(next_again_func)
 
     def result(self) -> LeaseGetResponse:
-        self.conf.execute()
+        if self.conf.sess.is_dirty:
+            self.conf.execute()
+
         resp = self.resp
-        release_get_state(self)
+
+        if len(get_state_pool) < 4096:
+            get_state_pool.append(self)
+
         return resp
 
 
 get_state_pool: List[_LeaseGetState] = []
-
-
-def new_get_state(conf: _PipelineConfig, key: str) -> _LeaseGetState:
-    if len(get_state_pool) == 0:
-        return _LeaseGetState(conf, key)
-    e = get_state_pool.pop()
-    e.__init__(conf, key)  # type: ignore
-    return e
-
-
-def release_get_state(state: _LeaseGetState):
-    if len(get_state_pool) >= 4096:
-        return
-    get_state_pool.append(state)
 
 
 class _LeaseSetState:
@@ -229,10 +238,11 @@ class ProxyPipeline:
         self._conf = _PipelineConfig(conf=conf, sess=sess)
 
     def lease_get(self, key: str) -> LeaseGetResult:
-        state = new_get_state(
-            conf=self._conf,
-            key=key,
-        )
+        if len(get_state_pool) == 0:
+            state = _LeaseGetState(self._conf, key)
+        else:
+            state = get_state_pool.pop()
+            state.__init__(self._conf, key)  # type: ignore
 
         self._conf.sess.add_next_call(state)
         return state

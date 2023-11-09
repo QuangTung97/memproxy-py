@@ -69,9 +69,9 @@ class _ItemConfig(Generic[T, K]):
 
 
 class _ItemState(Generic[T, K]):
-    __slots__ = '_conf', 'key', 'key_str', 'lease_get_fn', 'cas', '_fill_fn', 'result'
+    __slots__ = 'conf', 'key', 'key_str', 'lease_get_fn', 'cas', '_fill_fn', 'result'
 
-    _conf: _ItemConfig[T, K]
+    conf: _ItemConfig[T, K]
 
     key: K
     key_str: str
@@ -82,24 +82,14 @@ class _ItemState(Generic[T, K]):
 
     result: T
 
-    def __init__(
-            self,
-            conf: _ItemConfig[T, K],
-            key: K,
-    ):
-        self._conf = conf
-        self.key = key
-        self.key_str = self._conf.key_fn(key)
-        self.lease_get_fn = self._conf.pipe.lease_get(self.key_str)
-
     def _handle_set_back(self):
-        data = self._conf.codec.encode(self.result)
-        set_fn = self._conf.pipe.lease_set(key=self.key_str, cas=self.cas, data=data)
+        data = self.conf.codec.encode(self.result)
+        set_fn = self.conf.pipe.lease_set(key=self.key_str, cas=self.cas, data=data)
 
         def handle_set_fn():
             set_fn()
 
-        self._conf.sess.add_next_call(handle_set_fn)
+        self.conf.sess.add_next_call(handle_set_fn)
 
     def _handle_fill_fn(self):
         self.result = self._fill_fn()
@@ -107,39 +97,40 @@ class _ItemState(Generic[T, K]):
         if self.cas <= 0:
             return
 
-        self._conf.sess.add_next_call(self._handle_set_back)
+        self.conf.sess.add_next_call(self._handle_set_back)
 
     def _handle_filling(self):
-        self._conf.fill_count += 1
-        self._fill_fn = self._conf.filler(self.key)
-        self._conf.sess.add_next_call(self._handle_fill_fn)
+        self.conf.fill_count += 1
+        self._fill_fn = self.conf.filler(self.key)
+        self.conf.sess.add_next_call(self._handle_fill_fn)
 
     def __call__(self) -> None:
         get_resp = self.lease_get_fn.result()
 
         resp_error: Optional[str] = get_resp[3]
         if get_resp[0] == 1:
-            self._conf.hit_count += 1
+            self.conf.hit_count += 1
             try:
-                self.result = self._conf.codec.decode(get_resp[1])
+                self.result = self.conf.codec.decode(get_resp[1])
                 return
             except Exception as e:
-                self._conf.decode_error_count += 1
+                self.conf.decode_error_count += 1
                 resp_error = f'Decode error. {str(e)}'
 
         if get_resp[0] == 2:
             self.cas = get_resp[2]
         else:
             if get_resp[0] == 3:
-                self._conf.cache_error_count += 1
+                self.conf.cache_error_count += 1
             logging.error('Item get error. %s', resp_error)
             self.cas = 0
 
         self._handle_filling()
 
     def result_func(self) -> T:
-        if self._conf.sess.is_dirty:
-            self._conf.sess.execute()
+        if self.conf.sess.is_dirty:
+            self.conf.sess.execute()
+
         r = self.result
 
         if len(item_state_pool) < 4096:
@@ -163,31 +154,43 @@ class Item(Generic[T, K]):
     ):
         self._conf = _ItemConfig(pipe=pipe, key_fn=key_fn, filler=filler, codec=codec)
 
-    def _get_fast(self, key: K) -> _ItemState[T, K]:
+    def get(self, key: K) -> Promise[T]:
         if len(item_state_pool) == 0:
-            state = _ItemState(self._conf, key)
+            state: _ItemState[T, K] = _ItemState()
         else:
             state = item_state_pool.pop()
-            state.__init__(self._conf, key)  # type: ignore
+
+        state.conf = self._conf
+        state.key = key
+        state.key_str = self._conf.key_fn(key)
+        state.lease_get_fn = self._conf.pipe.lease_get(state.key_str)
 
         self._conf.sess.add_next_call(state)
-        return state
 
-    def get(self, key: K) -> Promise[T]:
-        state = self._get_fast(key)
         return state.result_func
 
     def get_multi(self, keys: List[K]) -> Promise[List[T]]:
         states: List[_ItemState[T, K]] = []
 
-        for k in keys:
-            st = self._get_fast(k)
-            states.append(st)
+        for key in keys:
+            if len(item_state_pool) == 0:
+                state: _ItemState[T, K] = _ItemState()
+            else:
+                state = item_state_pool.pop()
+
+            state.conf = self._conf
+            state.key = key
+            state.key_str = self._conf.key_fn(key)
+            state.lease_get_fn = self._conf.pipe.lease_get(state.key_str)
+
+            self._conf.sess.add_next_call(state)
+
+            states.append(state)
 
         def result_func() -> List[T]:
             result: List[T] = []
-            for state in states:
-                result.append(state.result_func())
+            for resp_state in states:
+                result.append(resp_state.result_func())
             return result
 
         return result_func

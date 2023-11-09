@@ -1,4 +1,5 @@
 import datetime
+import cProfile
 import time
 import unittest
 from dataclasses import dataclass
@@ -167,15 +168,17 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
         _users = fn()
 
     def test_run_benchmark_proxy(self) -> None:
-        num_loops = 2000
+        with cProfile.Profile() as pr:
+            num_loops = 2000
 
-        start = time.perf_counter_ns()
+            start = time.perf_counter_ns()
 
-        for i in range(num_loops):
-            self.run_multi_get()
+            for i in range(num_loops):
+                self.run_multi_get()
 
-        duration = time.perf_counter_ns() - start
-        print(f'[MEMORY ONLY] AVG PROXY ITEM DURATION: {duration / 1000 / num_loops}us')
+            duration = time.perf_counter_ns() - start
+            print(f'[MEMORY ONLY] AVG PROXY ITEM DURATION: {duration / 1000 / num_loops}us')
+            pr.dump_stats('proxy.stats')
 
     def test_run_do_init_only(self) -> None:
         num_loops = 10000
