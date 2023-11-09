@@ -8,6 +8,8 @@ from .route import Selector, Stats
 
 
 class ReplicatedSelector:
+    __slots__ = '_conf', '_chosen_server', '_failed_servers'
+
     _conf: _RouteConfig
 
     _chosen_server: Optional[int]
@@ -107,6 +109,8 @@ class _RouteConfig:
 
 
 class ReplicatedRoute:
+    __slots__ = '_conf'
+
     _conf: _RouteConfig
 
     def __init__(

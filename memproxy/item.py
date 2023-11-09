@@ -37,6 +37,9 @@ def new_json_codec(cls: Any) -> ItemCodec[T]:
 
 
 class _ItemConfig(Generic[T, K]):
+    __slots__ = ('pipe', 'key_fn', 'sess', 'codec', 'filler',
+                 'hit_count', 'fill_count', 'cache_error_count', 'decode_error_count')
+
     pipe: Pipeline
     key_fn: KeyNameFunc
     sess: Session
@@ -159,6 +162,8 @@ def release_item_state(state: _ItemState[T, K]):
 
 
 class Item(Generic[T, K]):
+    __slots__ = '_conf'
+
     _conf: _ItemConfig[T, K]
 
     def __init__(
@@ -213,9 +218,11 @@ class Item(Generic[T, K]):
 
 
 class _MultiGetState(Generic[T, K]):
+    __slots__ = ('keys', 'result', 'completed')
+
     keys: List[K]
     result: Dict[K, T]
-    completed: bool = False
+    completed: bool
 
     def __init__(self):
         self.keys = []
@@ -231,6 +238,8 @@ GetKeyFunc = Callable[[T], K]  # T -> K
 
 
 class _MultiGetFunc(Generic[T, K]):
+    __slots__ = '_state', '_fill_func', '_get_key_func', '_default'
+
     _state: Optional[_MultiGetState]
     _fill_func: MultiGetFillFunc
     _get_key_func: GetKeyFunc
