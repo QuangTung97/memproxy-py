@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar, Callable, Any, List, Optional, Dict
 
 from .memproxy import LeaseGetResult
-from .memproxy import Promise, Pipeline, Session, LeaseGetStatus
+from .memproxy import Promise, Pipeline, Session
 
 T = TypeVar("T")
 K = TypeVar("K")
@@ -66,12 +66,16 @@ class _ItemConfig(Generic[T, K]):
 
 
 class _ItemState(Generic[T, K]):
+    __slots__ = '_conf', 'key', 'key_str', 'lease_get_fn', 'cas', '_fill_fn', 'result'
+
     _conf: _ItemConfig[T, K]
 
     key: K
     key_str: str
     lease_get_fn: LeaseGetResult
     cas: int
+
+    _fill_fn: Promise[T]
 
     result: T
 
@@ -110,21 +114,22 @@ class _ItemState(Generic[T, K]):
     def __call__(self) -> None:
         get_resp = self.lease_get_fn.result()
 
-        if get_resp.status == LeaseGetStatus.FOUND:
+        resp_error: Optional[str] = get_resp[3]
+        if get_resp[0] == 1:
             self._conf.hit_count += 1
             try:
-                self.result = self._conf.codec.decode(get_resp.data)
+                self.result = self._conf.codec.decode(get_resp[1])
                 return
             except Exception as e:
                 self._conf.decode_error_count += 1
-                get_resp.error = f'Decode error. {str(e)}'
+                resp_error = f'Decode error. {str(e)}'
 
-        if get_resp.status == LeaseGetStatus.LEASE_GRANTED:
-            self.cas = get_resp.cas
+        if get_resp[0] == 2:
+            self.cas = get_resp[2]
         else:
-            if get_resp.status == LeaseGetStatus.ERROR:
+            if get_resp[0] == 3:
                 self._conf.cache_error_count += 1
-            logging.error('Item get error. %s', get_resp.error)
+            logging.error('Item get error. %s', resp_error)
             self.cas = 0
 
         self._handle_filling()

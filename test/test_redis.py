@@ -1,6 +1,7 @@
 import unittest
 from dataclasses import dataclass
 from typing import List, Dict, Any
+from typing import Optional
 
 import redis
 from redis.commands.core import Script
@@ -8,7 +9,15 @@ from redis.typing import ScriptTextT
 
 from memproxy import CacheClient, RedisClient
 from memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
-from memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
+from memproxy import LeaseSetStatus, DeleteStatus
+
+FOUND = 1
+LEASE_GRANTED: int = 2
+ERROR = 3
+
+
+def lease_get_resp(status: int, data: bytes, cas: int, error: Optional[str] = None) -> LeaseGetResponse:
+    return status, data, cas, error
 
 
 class TestRedisClient(unittest.TestCase):
@@ -24,8 +33,8 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        self.assertEqual(lease_get_resp(
+            status=LEASE_GRANTED,
             data=bytes(),
             cas=1,
         ), resp)
@@ -34,8 +43,8 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        self.assertEqual(lease_get_resp(
+            status=LEASE_GRANTED,
             data=bytes(),
             cas=1,
         ), resp)
@@ -50,14 +59,14 @@ class TestRedisClient(unittest.TestCase):
         resp1 = fn1.result()
         resp2 = fn2.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        self.assertEqual(lease_get_resp(
+            status=LEASE_GRANTED,
             data=b'',
             cas=1,
         ), resp1)
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        self.assertEqual(lease_get_resp(
+            status=LEASE_GRANTED,
             data=b'',
             cas=2,
         ), resp2)
@@ -69,14 +78,14 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        set_fn1 = pipe.lease_set('key01', resp.cas, b'some-data')
+        set_fn1 = pipe.lease_set('key01', resp[2], b'some-data')
         self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.OK), set_fn1())
 
         fn2 = pipe.lease_get('key01')
         resp = fn2.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.FOUND,
+        self.assertEqual(lease_get_resp(
+            status=FOUND,
             data=b'some-data',
             cas=0,
         ), resp)
@@ -96,8 +105,8 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        self.assertEqual(lease_get_resp(
+            status=LEASE_GRANTED,
             data=b'',
             cas=1,
         ), resp)
@@ -109,14 +118,14 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        set_fn1 = pipe.lease_set('key01', resp.cas + 1, b'some-data')
+        set_fn1 = pipe.lease_set('key01', resp[2] + 1, b'some-data')
         self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.CAS_MISMATCH), set_fn1())
 
         fn2 = pipe.lease_get('key01')
         resp = fn2.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        self.assertEqual(lease_get_resp(
+            status=LEASE_GRANTED,
             data=b'',
             cas=1,
         ), resp)
@@ -131,8 +140,8 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        self.assertEqual(lease_get_resp(
+            status=LEASE_GRANTED,
             data=b'',
             cas=131,
         ), resp)
@@ -159,14 +168,14 @@ class TestRedisClient(unittest.TestCase):
         delete_fn1 = pipe.delete('key01')
         delete_fn1()
 
-        set_fn1 = pipe.lease_set('key01', resp.cas, b'value01')
+        set_fn1 = pipe.lease_set('key01', resp[2], b'value01')
         self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.NOT_FOUND), set_fn1())
 
         fn2 = pipe.lease_get('key01')
         resp = fn2.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        self.assertEqual(lease_get_resp(
+            status=LEASE_GRANTED,
             data=b'',
             cas=2,
         ), resp)
@@ -178,7 +187,7 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        pipe.lease_set('key01', resp.cas, b'value01')
+        pipe.lease_set('key01', resp[2], b'value01')
         pipe.finish()
 
         resp = self.redis_client.get('key01')
@@ -195,7 +204,7 @@ class TestRedisClient(unittest.TestCase):
             fn1 = pipe.lease_get('key01')
             resp = fn1.result()
 
-            pipe.lease_set('key01', resp.cas, b'value01')
+            pipe.lease_set('key01', resp[2], b'value01')
 
         resp = self.redis_client.get('key01')
         self.assertEqual(b'val:value01', resp)
@@ -210,8 +219,8 @@ class TestRedisClient(unittest.TestCase):
         resp1 = fn1.result()
         resp2 = fn2.result()
 
-        set_fn1 = pipe.lease_set('key01', resp1.cas, b'value01')
-        set_fn2 = pipe.lease_set('key02', resp2.cas, b'value02')
+        set_fn1 = pipe.lease_set('key01', resp1[2], b'value01')
+        set_fn2 = pipe.lease_set('key02', resp2[2], b'value02')
 
         set_fn1()
         set_fn2()
@@ -223,14 +232,14 @@ class TestRedisClient(unittest.TestCase):
         resp1 = fn1.result()
         resp2 = fn2.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.FOUND,
+        self.assertEqual(lease_get_resp(
+            status=FOUND,
             data=b'value01',
             cas=0,
         ), resp1)
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.FOUND,
+        self.assertEqual(lease_get_resp(
+            status=FOUND,
             data=b'value02',
             cas=0,
         ), resp2)
@@ -255,8 +264,8 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.ERROR,
+        self.assertEqual(lease_get_resp(
+            status=ERROR,
             data=b'',
             cas=0,
             error='Value "abc" is not a number',
@@ -271,8 +280,8 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.FOUND,
+        self.assertEqual(lease_get_resp(
+            status=FOUND,
             data=b'hello01',
             cas=0,
         ), resp)
@@ -301,8 +310,8 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        self.assertEqual(lease_get_resp(
+            status=LEASE_GRANTED,
             data=b'',
             cas=131,
         ), resp)
@@ -315,8 +324,8 @@ class TestRedisClient(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        self.assertEqual(lease_get_resp(
+            status=LEASE_GRANTED,
             data=b'',
             cas=132,
         ), resp)
@@ -333,8 +342,8 @@ class TestRedisClientError(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         resp = fn1.result()
 
-        self.assertEqual(LeaseGetResponse(
-            status=LeaseGetStatus.ERROR,
+        self.assertEqual(lease_get_resp(
+            status=ERROR,
             data=b'',
             cas=0,
             error='Redis Get: Error 111 connecting to localhost:6400. Connection refused.'
@@ -406,9 +415,9 @@ class TestRedisClientWithCapturing(unittest.TestCase):
 
         fn1 = pipe.lease_get('key01')
         resp1 = fn1.result()
-        self.assertEqual(LeaseGetResponse(data=b'', cas=1, status=LeaseGetStatus.LEASE_GRANTED), resp1)
+        self.assertEqual(lease_get_resp(data=b'', cas=1, status=LEASE_GRANTED), resp1)
 
-        set_fn1 = pipe.lease_set('key01', resp1.cas, b'value01')
+        set_fn1 = pipe.lease_set('key01', resp1[2], b'value01')
         self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.OK), set_fn1())
 
         self.assertEqual(2, len(self.redis.text_list))
@@ -440,10 +449,10 @@ class TestRedisClientWithCapturing(unittest.TestCase):
         fn3 = pipe.lease_get('key03')
         fn4 = pipe.lease_get('key04')
 
-        self.assertEqual(LeaseGetResponse(data=b'', cas=1, status=LeaseGetStatus.LEASE_GRANTED), fn1.result())
-        self.assertEqual(LeaseGetResponse(data=b'', cas=2, status=LeaseGetStatus.LEASE_GRANTED), fn2.result())
-        self.assertEqual(LeaseGetResponse(data=b'', cas=3, status=LeaseGetStatus.LEASE_GRANTED), fn3.result())
-        self.assertEqual(LeaseGetResponse(data=b'', cas=4, status=LeaseGetStatus.LEASE_GRANTED), fn4.result())
+        self.assertEqual(lease_get_resp(data=b'', cas=1, status=LEASE_GRANTED), fn1.result())
+        self.assertEqual(lease_get_resp(data=b'', cas=2, status=LEASE_GRANTED), fn2.result())
+        self.assertEqual(lease_get_resp(data=b'', cas=3, status=LEASE_GRANTED), fn3.result())
+        self.assertEqual(lease_get_resp(data=b'', cas=4, status=LEASE_GRANTED), fn4.result())
 
         self.assertEqual(2, len(self.redis.text_list))
 
@@ -479,9 +488,9 @@ class TestRedisClientWithCapturing(unittest.TestCase):
         fn2 = pipe.lease_get('key02')
         fn3 = pipe.lease_get('key03')
 
-        self.assertEqual(LeaseGetResponse(data=b'', cas=5, status=LeaseGetStatus.LEASE_GRANTED), fn1.result())
-        self.assertEqual(LeaseGetResponse(data=b'', cas=6, status=LeaseGetStatus.LEASE_GRANTED), fn2.result())
-        self.assertEqual(LeaseGetResponse(data=b'', cas=7, status=LeaseGetStatus.LEASE_GRANTED), fn3.result())
+        self.assertEqual(lease_get_resp(data=b'', cas=5, status=LEASE_GRANTED), fn1.result())
+        self.assertEqual(lease_get_resp(data=b'', cas=6, status=LEASE_GRANTED), fn2.result())
+        self.assertEqual(lease_get_resp(data=b'', cas=7, status=LEASE_GRANTED), fn3.result())
 
         self.assertEqual(3, len(calls))
 
@@ -507,10 +516,10 @@ class TestRedisClientWithCapturing(unittest.TestCase):
         resp3 = fn3.result()
         resp4 = fn4.result()
 
-        set_fn1 = pipe.lease_set('key01', resp1.cas, b'value01')
-        pipe.lease_set('key02', resp2.cas, b'value02')
-        pipe.lease_set('key03', resp3.cas, b'value03')
-        pipe.lease_set('key04', resp4.cas, b'value04')
+        set_fn1 = pipe.lease_set('key01', resp1[2], b'value01')
+        pipe.lease_set('key02', resp2[2], b'value02')
+        pipe.lease_set('key03', resp3[2], b'value03')
+        pipe.lease_set('key04', resp4[2], b'value04')
 
         set_resp = set_fn1()
         self.assertEqual(LeaseSetResponse(LeaseSetStatus.OK), set_resp)
@@ -543,5 +552,5 @@ class TestRedisClientWithCapturing(unittest.TestCase):
         fn1 = pipe.lease_get('key01')
         fn4 = pipe.lease_get('key04')
 
-        self.assertEqual(LeaseGetResponse(cas=0, data=b'value01', status=LeaseGetStatus.FOUND), fn1.result())
-        self.assertEqual(LeaseGetResponse(cas=0, data=b'value04', status=LeaseGetStatus.FOUND), fn4.result())
+        self.assertEqual(lease_get_resp(cas=0, data=b'value01', status=FOUND), fn1.result())
+        self.assertEqual(lease_get_resp(cas=0, data=b'value04', status=FOUND), fn4.result())

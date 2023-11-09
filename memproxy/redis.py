@@ -9,7 +9,7 @@ from redis.commands.core import Script
 
 from .memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from .memproxy import LeaseGetResult
-from .memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
+from .memproxy import LeaseSetStatus, DeleteStatus
 from .memproxy import Pipeline, Promise
 from .session import Session
 
@@ -69,6 +69,9 @@ class SetInput:
 
 
 class RedisPipelineState:
+    __slots__ = ('_pipe', 'completed', '_keys', 'get_result', '_set_inputs',
+                 'set_result', '_delete_keys', 'delete_result', 'redis_error')
+
     _pipe: RedisPipeline
     completed: bool
 
@@ -181,6 +184,8 @@ VAL_PREFIX = b'val:'
 
 
 class _RedisGetResult:
+    __slots__ = 'pipe', 'state', 'index'
+
     pipe: RedisPipeline
     state: RedisPipelineState
     index: int
@@ -195,12 +200,7 @@ class _RedisGetResult:
 
         if self.state.redis_error is not None:
             release_get_result(self)
-            return LeaseGetResponse(
-                status=LeaseGetStatus.ERROR,
-                cas=0,
-                data=b'',
-                error=f'Redis Get: {self.state.redis_error}'
-            )
+            return 3, b'', 0, f'Redis Get: {self.state.redis_error}'
 
         get_resp = self.state.get_result[self.index]
         release_get_result(self)
@@ -208,29 +208,16 @@ class _RedisGetResult:
         if get_resp.startswith(CAS_PREFIX):
             num_str = get_resp[len(CAS_PREFIX):].decode()
             if not num_str.isnumeric():
-                return LeaseGetResponse(
-                    status=LeaseGetStatus.ERROR,
-                    cas=0,
-                    data=b'',
-                    error=f'Value "{num_str}" is not a number'
-                )
+                return 3, b'', 0, f'Value "{num_str}" is not a number'
 
             cas = int(num_str)
-            return LeaseGetResponse(
-                status=LeaseGetStatus.LEASE_GRANTED,
-                cas=cas,
-                data=b'',
-            )
+            return 2, b'', cas, None
         else:
             get_val = get_resp
             if get_val.startswith(VAL_PREFIX):
                 get_val = get_resp[len(VAL_PREFIX):]
 
-            return LeaseGetResponse(
-                LeaseGetStatus.FOUND,
-                get_val,
-                0,
-            )
+            return 1, get_val, 0, None
 
 
 get_result_pool: List[_RedisGetResult] = []
@@ -251,6 +238,9 @@ def release_get_result(r: _RedisGetResult):
 
 
 class RedisPipeline:
+    __slots__ = ('client', 'get_script', 'set_script', '_sess',
+                 '_min_ttl', '_max_ttl', 'max_keys_per_batch', '_state')
+
     client: redis.Redis
     get_script: Script
     set_script: Script
@@ -363,6 +353,8 @@ class RedisPipeline:
 
 
 class RedisClient:
+    __slots__ = ('_client', '_get_script', '_set_script',
+                 '_min_ttl', '_max_ttl', '_max_keys_per_batch')
     _client: redis.Redis
     _get_script: Script
     _set_script: Script

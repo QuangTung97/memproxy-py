@@ -2,16 +2,24 @@ import datetime
 import time
 import unittest
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import redis
 
 from memproxy import DeleteResponse, DeleteStatus
-from memproxy import Item, ItemCodec, LeaseGetResponse, LeaseGetStatus, new_json_codec
+from memproxy import Item, ItemCodec, LeaseGetResponse, new_json_codec
 from memproxy import RedisClient, Promise, CacheClient
 from memproxy.proxy import ProxyCacheClient, ReplicatedRoute
 from .fake_pipe import ClientFake
 from .fake_stats import StatsFake
+
+FOUND = 1
+LEASE_GRANTED: int = 2
+ERROR = 3
+
+
+def lease_get_resp(status: int, data: bytes, cas: int, error: Optional[str] = None) -> LeaseGetResponse:
+    return status, data, cas, error
 
 
 @dataclass
@@ -122,7 +130,7 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
         }
 
         self.client = ClientFake()
-        resp = LeaseGetResponse(status=LeaseGetStatus.FOUND, cas=0, data=b'user name 01')
+        resp = lease_get_resp(status=FOUND, cas=0, data=b'user name 01')
         self.client.pipe.get_results = [resp] * NUM_KEYS
 
         route = ReplicatedRoute(

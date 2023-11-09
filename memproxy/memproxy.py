@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, Callable, TypeVar, Optional
+from typing import Protocol, Callable, TypeVar, Optional, Tuple
 
 from .session import Session
 
@@ -9,19 +9,11 @@ T = TypeVar("T")
 
 Promise = Callable[[], T]
 
-
-class LeaseGetStatus(Enum):
-    FOUND = 1
-    LEASE_GRANTED = 2
-    ERROR = 3
-
-
-@dataclass
-class LeaseGetResponse:
-    status: LeaseGetStatus
-    data: bytes
-    cas: int
-    error: Optional[str] = None
+# status, data, cas, error
+# status = 1 (OK)
+# status = 2 (LEASE_GRANTED)
+# status = 3 (ERROR)
+LeaseGetResponse = Tuple[int, bytes, int, Optional[str]]
 
 
 class LeaseSetStatus(Enum):

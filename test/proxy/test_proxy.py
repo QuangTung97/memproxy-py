@@ -1,12 +1,20 @@
 import unittest
-from typing import Dict
+from typing import Dict, Optional
 
 from memproxy import CacheClient, DeleteResponse, DeleteStatus
-from memproxy import LeaseGetResponse, LeaseGetStatus
+from memproxy import LeaseGetResponse
 from memproxy import LeaseSetResponse, LeaseSetStatus
 from memproxy.proxy import ProxyCacheClient, ReplicatedRoute
 from .fake_pipe import ClientFake, global_actions, SetInput
 from .fake_stats import StatsFake
+
+FOUND = 1
+LEASE_GRANTED: int = 2
+ERROR = 3
+
+
+def lease_get_resp(status: int, data: bytes, cas: int, error: Optional[str] = None) -> LeaseGetResponse:
+    return status, data, cas, error
 
 
 class TestProxy(unittest.TestCase):
@@ -55,8 +63,8 @@ class TestProxy(unittest.TestCase):
         self.assertIs(self.pipe.lower_session(), calls[0].get_lower().get_lower())
 
         pipe1 = self.clients[21].pipe
-        resp1 = LeaseGetResponse(
-            status=LeaseGetStatus.FOUND,
+        resp1 = lease_get_resp(
+            status=FOUND,
             cas=0,
             data=b'data 01',
         )
@@ -72,18 +80,18 @@ class TestProxy(unittest.TestCase):
         fn2 = self.pipe.lease_get('key02')
         fn3 = self.pipe.lease_get('key03')
 
-        resp1 = LeaseGetResponse(
-            status=LeaseGetStatus.FOUND,
+        resp1 = lease_get_resp(
+            status=FOUND,
             cas=0,
             data=b'data 01',
         )
-        resp2 = LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        resp2 = lease_get_resp(
+            status=LEASE_GRANTED,
             cas=51,
             data=b'',
         )
-        resp3 = LeaseGetResponse(
-            status=LeaseGetStatus.FOUND,
+        resp3 = lease_get_resp(
+            status=FOUND,
             cas=0,
             data=b'data 03',
         )
@@ -103,14 +111,14 @@ class TestProxy(unittest.TestCase):
     def test_lease_get_error_retry_on_another(self) -> None:
         fn = self.pipe.lease_get('key01')
 
-        resp1 = LeaseGetResponse(
-            status=LeaseGetStatus.ERROR,
+        resp1 = lease_get_resp(
+            status=ERROR,
             cas=0,
             data=b'',
             error='server error'
         )
-        resp2 = LeaseGetResponse(
-            status=LeaseGetStatus.FOUND,
+        resp2 = lease_get_resp(
+            status=FOUND,
             cas=0,
             data=b'data 01',
         )
@@ -133,8 +141,8 @@ class TestProxy(unittest.TestCase):
 
         fn = self.pipe.lease_get('key01')
 
-        resp1 = LeaseGetResponse(
-            status=LeaseGetStatus.ERROR,
+        resp1 = lease_get_resp(
+            status=ERROR,
             cas=0,
             data=b'',
             error='server error'
@@ -148,8 +156,8 @@ class TestProxy(unittest.TestCase):
         self.assertEqual(['key01', 'key01:func'], pipe1.actions)
 
     def test_lease_get_then_set(self) -> None:
-        resp1 = LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        resp1 = lease_get_resp(
+            status=LEASE_GRANTED,
             cas=61,
             data=b'',
         )
@@ -160,11 +168,11 @@ class TestProxy(unittest.TestCase):
         fn1 = self.pipe.lease_get('key01')
         self.assertEqual(resp1, fn1.result())
 
-        set_fn1 = self.pipe.lease_set('key01', resp1.cas, b'data 01')
+        set_fn1 = self.pipe.lease_set('key01', resp1[2], b'data 01')
         self.assertEqual(LeaseSetResponse(LeaseSetStatus.OK), set_fn1())
 
         self.assertEqual([
-            SetInput(key='key01', cas=resp1.cas, val=b'data 01')
+            SetInput(key='key01', cas=resp1[2], val=b'data 01')
         ], pipe1.set_calls)
 
         self.assertEqual([
@@ -181,13 +189,13 @@ class TestProxy(unittest.TestCase):
         self.assertEqual([], pipe1.actions)
 
     def test_lease_get_then_set_to_another_server(self) -> None:
-        resp1 = LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        resp1 = lease_get_resp(
+            status=LEASE_GRANTED,
             cas=61,
             data=b'',
         )
-        resp2 = LeaseGetResponse(
-            status=LeaseGetStatus.ERROR,
+        resp2 = lease_get_resp(
+            status=ERROR,
             cas=0,
             data=b'',
         )
@@ -199,8 +207,8 @@ class TestProxy(unittest.TestCase):
         self.assertEqual(resp1, fn1.result())
 
         # get again switch to another server
-        resp3 = LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        resp3 = lease_get_resp(
+            status=LEASE_GRANTED,
             cas=71,
             data=b'',
         )
@@ -212,7 +220,7 @@ class TestProxy(unittest.TestCase):
         self.assertEqual(resp3, fn2.result())
 
         # lease set should fail
-        set_fn1 = self.pipe.lease_set('key01', resp1.cas, b'data 01')
+        set_fn1 = self.pipe.lease_set('key01', resp1[2], b'data 01')
         self.assertEqual(LeaseSetResponse(LeaseSetStatus.ERROR, error='proxy: can not do lease set'), set_fn1())
 
         self.assertEqual([], pipe1.set_calls)
@@ -345,8 +353,8 @@ class TestProxy(unittest.TestCase):
 
         pipe2 = self.clients[22].pipe
 
-        resp1 = LeaseGetResponse(
-            status=LeaseGetStatus.LEASE_GRANTED,
+        resp1 = lease_get_resp(
+            status=LEASE_GRANTED,
             cas=51,
             data=b'',
         )
@@ -355,7 +363,7 @@ class TestProxy(unittest.TestCase):
         fn = self.pipe.lease_get('key01')
         self.assertEqual(resp1, fn.result())
 
-        set_fn1 = self.pipe.lease_set('key01', resp1.cas, b'user data 01')
+        set_fn1 = self.pipe.lease_set('key01', resp1[2], b'user data 01')
         delete_fn1 = self.pipe.delete('key01')
 
         self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.OK), set_fn1())

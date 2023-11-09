@@ -1,13 +1,15 @@
 from typing import Dict, List, Callable, Optional
 
 from memproxy import LeaseGetResult
-from memproxy import LeaseGetStatus, LeaseSetStatus, DeleteStatus
+from memproxy import LeaseSetStatus, DeleteStatus
 from memproxy import Pipeline, CacheClient, Session
 from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from .route import Selector, Route
 
 
 class _ClientConfig:
+    __slots__ = ('clients', 'route')
+
     clients: Dict[int, CacheClient]
     route: Route
 
@@ -17,6 +19,8 @@ class _ClientConfig:
 
 
 class _LeaseSetServer:
+    __slots__ = 'server_id'
+
     server_id: Optional[int]
 
     def __init__(self, server_id: int):
@@ -24,6 +28,8 @@ class _LeaseSetServer:
 
 
 class _PipelineConfig:
+    __slots__ = ('conf', 'sess', 'pipe_sess', 'selector', '_pipelines', '_set_servers')
+
     conf: _ClientConfig
     sess: Session
     pipe_sess: Session
@@ -90,6 +96,8 @@ class _PipelineConfig:
 
 
 class _LeaseGetState:
+    __slots__ = ('conf', 'key', 'server_id', 'pipe', 'fn', 'resp')
+
     conf: _PipelineConfig
     key: str
     server_id: int
@@ -113,13 +121,13 @@ class _LeaseGetState:
 
     def _handle_resp(self):
         self.resp = self.fn.result()
-        if self.resp.status == LeaseGetStatus.LEASE_GRANTED:
+        if self.resp[0] == 2:
             self.conf.add_set_server(self.key, self.server_id)
 
     def __call__(self) -> None:
         self._handle_resp()
 
-        if self.resp.status != LeaseGetStatus.ERROR:
+        if self.resp[0] != 3:
             return
 
         self.conf.selector.set_failed_server(self.server_id)
@@ -161,6 +169,8 @@ def release_get_state(state: _LeaseGetState):
 
 
 class _LeaseSetState:
+    __slots__ = 'conf', 'fn', 'resp'
+
     conf: _PipelineConfig
     fn: Promise[LeaseSetResponse]
     resp: LeaseSetResponse
@@ -178,6 +188,8 @@ class _LeaseSetState:
 
 
 class _DeleteState:
+    __slots__ = 'conf', 'fn_list', 'servers', 'resp'
+
     conf: _PipelineConfig
 
     fn_list: List[Promise[DeleteResponse]]
@@ -208,6 +220,8 @@ class _DeleteState:
 
 
 class ProxyPipeline:
+    __slots__ = '_conf'
+
     _conf: _PipelineConfig
 
     def __init__(self, conf: _ClientConfig, sess: Optional[Session]):
@@ -267,6 +281,8 @@ class ProxyPipeline:
 
 
 class ProxyCacheClient:
+    __slots__ = '_conf'
+
     _conf: _ClientConfig
 
     def __init__(
