@@ -117,22 +117,6 @@ class _LeaseGetState:
 
     resp: LeaseGetResponse
 
-    def __init__(self, conf: _PipelineConfig, key: str):
-        self.conf = conf
-        self.key = key
-
-        if conf.pipe:
-            self.pipe = conf.pipe
-            self.server_id = conf.server_id  # type: ignore
-        else:
-            server_id, _ = conf.selector.select_server(key)
-            self.server_id = server_id
-            conf.server_id = server_id
-
-            self.pipe = conf.get_pipeline(server_id)
-
-        self.fn = self.pipe.lease_get(key)
-
     def _handle_resp(self):
         self.resp = self.fn.result()
         if self.resp[0] == 2:
@@ -169,13 +153,14 @@ class _LeaseGetState:
 
         resp = self.resp
 
-        if len(get_state_pool) < 4096:
-            get_state_pool.append(self)
+        if len(_P) < 4096:
+            _P.append(self)
 
         return resp
 
 
 get_state_pool: List[_LeaseGetState] = []
+_P = get_state_pool
 
 
 class _LeaseSetState:
@@ -238,11 +223,28 @@ class ProxyPipeline:
         self._conf = _PipelineConfig(conf=conf, sess=sess)
 
     def lease_get(self, key: str) -> LeaseGetResult:
-        if len(get_state_pool) == 0:
-            state = _LeaseGetState(self._conf, key)
+        if len(_P) == 0:
+            state = _LeaseGetState()
         else:
-            state = get_state_pool.pop()
-            state.__init__(self._conf, key)  # type: ignore
+            state = _P.pop()
+
+        # do init get state
+        conf = self._conf
+        state.conf = conf
+        state.key = key
+
+        if conf.pipe:
+            state.pipe = conf.pipe
+            state.server_id = conf.server_id  # type: ignore
+        else:
+            server_id, _ = conf.selector.select_server(key)
+            state.server_id = server_id
+            conf.server_id = server_id
+
+            state.pipe = conf.get_pipeline(server_id)
+
+        state.fn = state.pipe.lease_get(key)
+        # end init get state
 
         self._conf.sess.add_next_call(state)
         return state

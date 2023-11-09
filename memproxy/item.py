@@ -140,6 +140,7 @@ class _ItemState(Generic[T, K]):
 
 
 item_state_pool: List[Any] = []
+_P = item_state_pool
 
 
 class Item(Generic[T, K]):
@@ -155,15 +156,17 @@ class Item(Generic[T, K]):
         self._conf = _ItemConfig(pipe=pipe, key_fn=key_fn, filler=filler, codec=codec)
 
     def get(self, key: K) -> Promise[T]:
-        if len(item_state_pool) == 0:
+        # do init item state
+        if len(_P) == 0:
             state: _ItemState[T, K] = _ItemState()
         else:
-            state = item_state_pool.pop()
+            state = _P.pop()
 
         state.conf = self._conf
         state.key = key
         state.key_str = self._conf.key_fn(key)
         state.lease_get_fn = self._conf.pipe.lease_get(state.key_str)
+        # end init item state
 
         self._conf.sess.add_next_call(state)
 
@@ -173,15 +176,17 @@ class Item(Generic[T, K]):
         states: List[_ItemState[T, K]] = []
 
         for key in keys:
-            if len(item_state_pool) == 0:
+            # do init item state
+            if len(_P) == 0:
                 state: _ItemState[T, K] = _ItemState()
             else:
-                state = item_state_pool.pop()
+                state = _P.pop()
 
             state.conf = self._conf
             state.key = key
             state.key_str = self._conf.key_fn(key)
             state.lease_get_fn = self._conf.pipe.lease_get(state.key_str)
+            # end init item state
 
             self._conf.sess.add_next_call(state)
 
