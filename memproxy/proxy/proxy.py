@@ -62,6 +62,7 @@ class _PipelineConfig:
 
     def get_pipeline(self, server_id: int) -> Pipeline:
         pipe = self._pipelines.get(server_id)
+        self.pipe = pipe
         if pipe:
             return pipe
 
