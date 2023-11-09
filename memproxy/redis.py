@@ -69,13 +69,13 @@ class SetInput:
 
 
 class RedisPipelineState:
-    __slots__ = ('_pipe', 'completed', '_keys', 'get_result', '_set_inputs',
+    __slots__ = ('_pipe', 'completed', 'keys', 'get_result', '_set_inputs',
                  'set_result', '_delete_keys', 'delete_result', 'redis_error')
 
     _pipe: RedisPipeline
     completed: bool
 
-    _keys: List[str]
+    keys: List[str]
     get_result: List[bytes]
 
     _set_inputs: List[SetInput]
@@ -90,16 +90,11 @@ class RedisPipelineState:
         self._pipe = pipe
         self.completed = False
 
-        self._keys = []
+        self.keys = []
         self._set_inputs = []
         self._delete_keys = []
 
         self.redis_error = None
-
-    def add_get_op(self, key: str) -> int:
-        index = len(self._keys)
-        self._keys.append(key)
-        return index
 
     def add_set_op(self, key: str, cas: int, val: bytes, ttl: int) -> int:
         index = len(self._set_inputs)
@@ -118,7 +113,7 @@ class RedisPipelineState:
             self.redis_error = str(e)
 
     def _execute_in_try(self) -> None:
-        if len(self._keys) > 0:
+        if len(self.keys) > 0:
             self._execute_lease_get()
 
         if len(self._set_inputs) > 0:
@@ -135,13 +130,13 @@ class RedisPipelineState:
     def _execute_lease_get(self) -> None:
         batch_size = self._pipe.max_keys_per_batch
 
-        if len(self._keys) <= batch_size:
-            self.get_result = self._pipe.get_script(keys=self._keys, client=self._pipe.client)
+        if len(self.keys) <= batch_size:
+            self.get_result = self._pipe.get_script(keys=self.keys, client=self._pipe.client)
             return
 
         with self._pipe.client.pipeline(transaction=False) as pipe:
-            for n in range(0, len(self._keys), batch_size):
-                keys = self._keys[n: n + batch_size]
+            for n in range(0, len(self.keys), batch_size):
+                keys = self.keys[n: n + batch_size]
                 self._pipe.get_script(keys=keys, client=pipe)
             pipe_result = pipe.execute()
 
@@ -190,20 +185,19 @@ class _RedisGetResult:
     state: RedisPipelineState
     index: int
 
-    def __init__(self, pipe: RedisPipeline, state: RedisPipelineState, index: int):
-        self.pipe = pipe
-        self.state = state
-        self.index = index
-
     def result(self) -> LeaseGetResponse:
-        self.pipe.execute(self.state)
+        if not self.state.completed:
+            self.pipe.execute(self.state)
 
         if self.state.redis_error is not None:
             release_get_result(self)
             return 3, b'', 0, f'Redis Get: {self.state.redis_error}'
 
         get_resp = self.state.get_result[self.index]
-        release_get_result(self)
+
+        # release to pool
+        if len(_P) < 4096:
+            _P.append(self)
 
         if get_resp.startswith(CAS_PREFIX):
             num_str = get_resp[len(CAS_PREFIX):].decode()
@@ -221,20 +215,13 @@ class _RedisGetResult:
 
 
 get_result_pool: List[_RedisGetResult] = []
-
-
-def new_get_result(pipe: RedisPipeline, state: RedisPipelineState, index: int) -> _RedisGetResult:
-    if len(get_result_pool) == 0:
-        return _RedisGetResult(pipe, state, index)
-    e = get_result_pool.pop()
-    e.__init__(pipe, state, index)  # type: ignore
-    return e
+_P = get_result_pool
 
 
 def release_get_result(r: _RedisGetResult):
-    if len(get_result_pool) >= 4096:
+    if len(_P) >= 4096:
         return
-    get_result_pool.append(r)
+    _P.append(r)
 
 
 class RedisPipeline:
@@ -285,10 +272,25 @@ class RedisPipeline:
             self._state = None
 
     def lease_get(self, key: str) -> LeaseGetResult:
-        state = self._get_state()
-        index = state.add_get_op(key)
+        if self._state is None:
+            self._state = RedisPipelineState(self)
 
-        result = new_get_result(pipe=self, state=state, index=index)
+        state = self._state
+
+        index = len(state.keys)
+        state.keys.append(key)
+
+        # do init get result
+        if len(_P) == 0:
+            result = _RedisGetResult()
+        else:
+            result = _P.pop()
+
+        result.pipe = self
+        result.state = state
+        result.index = index
+        # end init get result
+
         return result
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
