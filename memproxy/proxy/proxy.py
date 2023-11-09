@@ -87,8 +87,9 @@ class _PipelineConfig:
         return state.server_id
 
     def execute(self):
-        self.sess.execute()
-        self.selector.reset()
+        if self.sess.is_dirty:
+            self.sess.execute()
+            self.selector.reset()
 
     def finish(self):
         for server_id in self._pipelines:

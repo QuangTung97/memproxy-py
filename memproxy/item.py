@@ -138,27 +138,17 @@ class _ItemState(Generic[T, K]):
         self._handle_filling()
 
     def result_func(self) -> T:
-        self._conf.sess.execute()
+        if self._conf.sess.is_dirty:
+            self._conf.sess.execute()
         r = self.result
-        release_item_state(self)
+
+        if len(item_state_pool) < 4096:
+            item_state_pool.append(self)
+
         return r
 
 
 item_state_pool: List[Any] = []
-
-
-def new_item_state(conf: _ItemConfig[T, K], key: K) -> _ItemState[T, K]:
-    if len(item_state_pool) == 0:
-        return _ItemState(conf, key)
-    e = item_state_pool.pop()
-    e.__init__(conf, key)
-    return e
-
-
-def release_item_state(state: _ItemState[T, K]):
-    if len(item_state_pool) >= 4096:
-        return
-    item_state_pool.append(state)
 
 
 class Item(Generic[T, K]):
@@ -174,7 +164,12 @@ class Item(Generic[T, K]):
         self._conf = _ItemConfig(pipe=pipe, key_fn=key_fn, filler=filler, codec=codec)
 
     def _get_fast(self, key: K) -> _ItemState[T, K]:
-        state = new_item_state(self._conf, key)
+        if len(item_state_pool) == 0:
+            state = _ItemState(self._conf, key)
+        else:
+            state = item_state_pool.pop()
+            state.__init__(self._conf, key)  # type: ignore
+
         self._conf.sess.add_next_call(state)
         return state
 
