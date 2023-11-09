@@ -6,42 +6,42 @@ NextCallFunc = Callable[[], None]
 
 
 class Session:
+    __slots__ = '_next_calls', '_lower', '_higher', 'is_dirty'
+
     _next_calls: List[NextCallFunc]
     _lower: Optional[Session]
     _higher: Optional[Session]
-    _is_dirty: bool
+    is_dirty: bool
 
     def __init__(self):
         self._next_calls = []
         self._lower = None
         self._higher = None
-        self._is_dirty = False
+        self.is_dirty = False
 
     def add_next_call(self, fn: NextCallFunc) -> None:
         self._next_calls.append(fn)
-        self._set_dirty_recursive()
+
+        s: Optional[Session] = self
+        while s and not s.is_dirty:
+            s.is_dirty = True
+            s = s._lower
 
     def execute(self) -> None:
         higher = self._higher
-        if higher and higher._is_dirty:
+        if higher and higher.is_dirty:
             higher.execute()
 
         while True:
-            if not self._is_dirty:
+            if not self.is_dirty:
                 return
 
             call_list = self._next_calls
             self._next_calls = []
-            self._is_dirty = False
+            self.is_dirty = False
 
             for fn in call_list:
                 fn()
-
-    def _set_dirty_recursive(self):
-        s = self
-        while s and not s._is_dirty:
-            s._is_dirty = True
-            s = s._lower
 
     def get_lower(self) -> Session:
         if self._lower is None:
