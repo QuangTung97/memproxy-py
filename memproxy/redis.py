@@ -174,10 +174,6 @@ class RedisPipelineState:
         return self._pipe.set_script(keys=keys, args=args, client=client)
 
 
-CAS_PREFIX = b'cas:'
-VAL_PREFIX = b'val:'
-
-
 class _RedisGetResult:
     __slots__ = 'pipe', 'state', 'index'
 
@@ -199,19 +195,18 @@ class _RedisGetResult:
         if len(_P) < 4096:
             _P.append(self)
 
-        if get_resp.startswith(CAS_PREFIX):
-            num_str = get_resp[len(CAS_PREFIX):].decode()
+        if get_resp.startswith(b'val:'):
+            return 1, get_resp[len(b'val:'):], 0, None
+
+        if get_resp.startswith(b'cas:'):
+            num_str = get_resp[len(b'cas:'):].decode()
             if not num_str.isnumeric():
                 return 3, b'', 0, f'Value "{num_str}" is not a number'
 
             cas = int(num_str)
             return 2, b'', cas, None
         else:
-            get_val = get_resp
-            if get_val.startswith(VAL_PREFIX):
-                get_val = get_resp[len(VAL_PREFIX):]
-
-            return 1, get_val, 0, None
+            return 1, get_resp, 0, None
 
 
 get_result_pool: List[_RedisGetResult] = []

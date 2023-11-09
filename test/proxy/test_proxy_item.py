@@ -1,4 +1,3 @@
-import datetime
 import time
 import unittest
 from dataclasses import dataclass
@@ -61,8 +60,6 @@ class TestProxyItemBenchmark(unittest.TestCase):
             21: 1000,
         }
 
-        self.total_duration = datetime.timedelta(0)
-
         route = ReplicatedRoute(
             server_ids=self.servers,
             stats=self.stats,
@@ -82,8 +79,6 @@ class TestProxyItemBenchmark(unittest.TestCase):
         return lambda: UserTest(id=key, name='A' * 100)
 
     def run_multi_get(self) -> None:
-        start = datetime.datetime.now()
-
         pipe = self.proxy_client.pipeline()
 
         it = Item(
@@ -93,26 +88,22 @@ class TestProxyItemBenchmark(unittest.TestCase):
             filler=self.filler_func,
         )
 
-        fn_list: List[Promise[UserTest]] = []
-        for i in range(100):
-            fn = it.get(i)
-            fn_list.append(fn)
-
-        for fn in fn_list:
-            fn()
-
-        duration = datetime.datetime.now() - start
-        self.total_duration += duration
+        keys = list(range(100))
+        fn = it.get_multi(keys)
+        fn()
 
     def test_run_benchmark_proxy(self) -> None:
         self.run_multi_get()
-        self.total_duration = datetime.timedelta(0)
+
+        start = time.perf_counter_ns()
 
         num_loops = 100
         for i in range(num_loops):
             self.run_multi_get()
 
-        print(f'AVG PROXY ITEM DURATION: {(self.total_duration / num_loops).microseconds / 1000.0}ms')
+        duration = time.perf_counter_ns() - start
+
+        print(f'AVG PROXY ITEM DURATION: {(duration / num_loops) / 1000.0}us')
 
 
 NUM_KEYS = 100
@@ -167,7 +158,7 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
         _users = fn()
 
     def test_run_benchmark_proxy(self) -> None:
-        num_loops = 200
+        num_loops = 200  # 405.9151384 us => 382.4579183us
 
         start = time.perf_counter_ns()
 
@@ -178,9 +169,9 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
         print(f'[MEMORY ONLY] AVG PROXY ITEM DURATION: {duration / 1000 / num_loops}us')
 
     def test_run_do_init_only(self) -> None:
-        num_loops = 10000
+        num_loops = 40000
 
-        start = time.time()
+        start = time.perf_counter_ns()
 
         count = 0
 
@@ -196,8 +187,8 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
             k = it.compute_key_name(10)
             count += len(k)
 
-        duration = time.time() - start
-        print(f'[MEMORY ONLY] DO INIT ONLY AVG DURATION: {duration * 1000 / num_loops}ms')
+        duration = time.perf_counter_ns() - start
+        print(f'[MEMORY ONLY] DO INIT ONLY AVG DURATION: {duration / num_loops / 1000}us')
 
 
 class TestProxyItem(unittest.TestCase):
