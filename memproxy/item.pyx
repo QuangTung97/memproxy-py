@@ -165,6 +165,7 @@ cdef class Item:
     def get_multi(self, list keys):
         cdef list states = []
         cdef _ItemState state
+        cdef object key
 
         for key in keys:
             # do init item state

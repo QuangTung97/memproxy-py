@@ -329,13 +329,9 @@ class TestItemBenchmark(unittest.TestCase):
             codec=new_json_codec(UserTest),
         )
 
-        fn_list: List[Promise[UserTest]] = []
-        for i in range(100):
-            fn = it.get(i)
-            fn_list.append(fn)
-
-        for fn in fn_list:
-            fn()
+        keys = list(range(100))
+        fn = it.get_multi(keys)
+        fn()
 
         duration = datetime.datetime.now() - start
         self.total_duration += duration
@@ -344,7 +340,7 @@ class TestItemBenchmark(unittest.TestCase):
         self.run_multi_get()
         self.total_duration = datetime.timedelta(0)
 
-        num_loops = 10
+        num_loops = 50
         for i in range(num_loops):
             self.run_multi_get()
         print(f'AVG DURATION: {(self.total_duration / num_loops).microseconds / 1000.0}ms')
