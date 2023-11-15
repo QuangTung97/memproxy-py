@@ -1,34 +1,25 @@
-from __future__ import annotations
-
-from typing import List, Callable, Optional
-
-NextCallFunc = Callable[[], None]
-
-
-class Session:
-    __slots__ = '_next_calls', '_lower', '_higher', 'is_dirty'
-
-    _next_calls: List[NextCallFunc]
-    _lower: Optional[Session]
-    _higher: Optional[Session]
-    is_dirty: bool
-
+cdef class Session:
     def __init__(self):
         self._next_calls = []
         self._lower = None
         self._higher = None
         self.is_dirty = False
-
-    def add_next_call(self, fn: NextCallFunc) -> None:
+    
+    cdef void add_next_call(self, object fn):
         self._next_calls.append(fn)
 
-        s: Optional[Session] = self
+        cdef Session s = self
         while s and not s.is_dirty:
             s.is_dirty = True
             s = s._lower
 
-    def execute(self) -> None:
-        higher = self._higher
+    def py_add_next(self, object fn):
+        self.add_next_call(fn)
+
+    cdef void execute(self):
+        cdef Session higher = self._higher
+        cdef list call_list
+
         if higher and higher.is_dirty:
             higher.execute()
 
@@ -43,8 +34,14 @@ class Session:
             for fn in call_list:
                 fn()
 
-    def get_lower(self) -> Session:
+    def py_execute(self):
+        self.execute()
+
+    cdef Session get_lower(self):
         if self._lower is None:
             self._lower = Session()
             self._lower._higher = self
         return self._lower
+    
+    def py_get_lower(self):
+        return self.get_lower()

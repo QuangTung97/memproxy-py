@@ -1,9 +1,13 @@
-.PHONY: all lint test coverage html item-profile build-dist upload install-tools requirements
+.PHONY: all lint compile test coverage html item-profile build-dist upload install-tools requirements
 
 all: lint test
 
 lint:
 	mypy .
+
+compile:
+	@python setup.py build_ext --inplace
+	@echo "-------------------------------------------------"
 
 test:
 	coverage run --omit="*/dist-packages/*" -m unittest

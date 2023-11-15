@@ -8,3 +8,6 @@ __pycache__
 /dist
 /**/*.egg-info
 /venv
+/**/*.c
+/**/*.so
+/build

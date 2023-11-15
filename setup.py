@@ -1,5 +1,6 @@
 # type: ignore
 import setuptools
+from Cython.Build import cythonize
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -9,6 +10,8 @@ setuptools.setup(
     version="0.3.0rc8",
     license="MIT",
     keywords=["Redis", "key-value store", "caching"],
+
+    ext_modules=cythonize('memproxy/*.pyx', language_level="3str"),
 
     author="quangtung97",
     author_email="quangtung29121997@gmail.com",

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
-from typing import List, Optional, Union
 
 import redis
 from redis.commands.core import Script
@@ -13,7 +11,7 @@ from .memproxy import LeaseSetStatus, DeleteStatus
 from .memproxy import Pipeline, Promise
 from .session import Session
 
-LEASE_GET_SCRIPT = """
+cdef str LEASE_GET_SCRIPT = """
 local result = {}
 
 for i = 1,#KEYS do
@@ -34,7 +32,7 @@ end
 return result
 """
 
-LEASE_SET_SCRIPT = """
+cdef str LEASE_SET_SCRIPT = """
 local result = {}
 
 for i = 1,#KEYS do
@@ -60,33 +58,37 @@ return result
 """
 
 
-@dataclass
-class SetInput:
-    key: str
-    cas: int
-    val: bytes
-    ttl: int
+cdef class SetInput:
+    cdef:
+        public str key
+        public int cas
+        public bytes val
+        public int ttl
+
+    def __init__(self, str key, int cas, bytes val, int ttl):
+        self.key = key
+        self.cas = cas
+        self.val = val
+        self.ttl = ttl
 
 
-class RedisPipelineState:
-    __slots__ = ('_pipe', 'completed', 'keys', 'get_result', '_set_inputs',
-                 'set_result', '_delete_keys', 'delete_result', 'redis_error')
+cdef class RedisPipelineState:
+    cdef:
+        RedisPipeline _pipe
+        bint completed
 
-    _pipe: RedisPipeline
-    completed: bool
+        list keys
+        list get_result
 
-    keys: List[str]
-    get_result: List[bytes]
+        list _set_inputs
+        list set_result
 
-    _set_inputs: List[SetInput]
-    set_result: List[bytes]
+        list _delete_keys
+        list delete_result
 
-    _delete_keys: List[str]
-    delete_result: List[int]
+        str redis_error
 
-    redis_error: Optional[str]
-
-    def __init__(self, pipe: RedisPipeline):
+    def __init__(self, RedisPipeline pipe):
         self._pipe = pipe
         self.completed = False
 
@@ -96,23 +98,23 @@ class RedisPipelineState:
 
         self.redis_error = None
 
-    def add_set_op(self, key: str, cas: int, val: bytes, ttl: int) -> int:
-        index = len(self._set_inputs)
+    cdef int add_set_op(self, str key, int cas, bytes val, int ttl):
+        cdef int index = len(self._set_inputs)
         self._set_inputs.append(SetInput(key=key, cas=cas, val=val, ttl=ttl))
         return index
 
-    def add_delete_op(self, key: str) -> int:
-        index = len(self._delete_keys)
+    cdef int add_delete_op(self, str key):
+        cdef int index = len(self._delete_keys)
         self._delete_keys.append(key)
         return index
 
-    def execute(self) -> None:
+    cdef void execute(self):
         try:
             self._execute_in_try()
         except Exception as e:
             self.redis_error = str(e)
 
-    def _execute_in_try(self) -> None:
+    cdef void _execute_in_try(self):
         if len(self.keys) > 0:
             self._execute_lease_get()
 
@@ -127,7 +129,7 @@ class RedisPipelineState:
 
         self.completed = True
 
-    def _execute_lease_get(self) -> None:
+    cdef void _execute_lease_get(self):
         batch_size = self._pipe.max_keys_per_batch
 
         if len(self.keys) <= batch_size:
@@ -144,7 +146,7 @@ class RedisPipelineState:
         for r in pipe_result:
             self.get_result.extend(r)
 
-    def _execute_lease_set(self) -> None:
+    cdef void _execute_lease_set(self):
         batch_size = self._pipe.max_keys_per_batch
 
         if len(self._set_inputs) <= batch_size:
@@ -162,10 +164,10 @@ class RedisPipelineState:
         for r in pipe_result:
             self.set_result.extend(r)
 
-    def _execute_lease_set_inputs(self, inputs: List[SetInput], client) -> List[bytes]:
-        keys = [i.key for i in inputs]
+    cdef object _execute_lease_set_inputs(self, list inputs, object client):
+        cdef list keys = [i.key for i in inputs]
+        cdef list args = []
 
-        args: List[Union[int, bytes]] = []
         for i in inputs:
             args.append(i.cas)
             args.append(i.val)
@@ -174,12 +176,11 @@ class RedisPipelineState:
         return self._pipe.set_script(keys=keys, args=args, client=client)
 
 
-class _RedisGetResult:
-    __slots__ = 'pipe', 'state', 'index'
-
-    pipe: RedisPipeline
-    state: RedisPipelineState
-    index: int
+cdef class _RedisGetResult:
+    cdef:
+        RedisPipeline pipe
+        RedisPipelineState state
+        int index
 
     def result(self) -> LeaseGetResponse:
         if not self.state.completed:
@@ -191,9 +192,7 @@ class _RedisGetResult:
 
         get_resp = self.state.get_result[self.index]
 
-        # release to pool
-        if len(_P) < 4096:
-            _P.append(self)
+        release_get_result(self)
 
         if get_resp.startswith(b'val:'):
             return 1, get_resp[len(b'val:'):], 0, None
@@ -209,32 +208,26 @@ class _RedisGetResult:
             return 1, get_resp, 0, None
 
 
-get_result_pool: List[_RedisGetResult] = []
-_P = get_result_pool
+cdef list get_result_pool = []
+cdef list _P = get_result_pool
 
 
-def release_get_result(r: _RedisGetResult):
+cdef void release_get_result(_RedisGetResult r):
     if len(_P) >= 4096:
         return
     _P.append(r)
 
 
-class RedisPipeline:
-    __slots__ = ('client', 'get_script', 'set_script', '_sess',
-                 '_min_ttl', '_max_ttl', 'max_keys_per_batch', '_state')
-
-    client: redis.Redis
-    get_script: Script
-    set_script: Script
-
-    _sess: Session
-
-    _min_ttl: int
-    _max_ttl: int
-
-    max_keys_per_batch: int
-
-    _state: Optional[RedisPipelineState]
+cdef class RedisPipeline:
+    cdef:
+        object client
+        object get_script
+        object set_script
+        object _sess
+        int _min_ttl
+        int _max_ttl
+        int max_keys_per_batch
+        RedisPipelineState _state
 
     def __init__(
             self, r: redis.Redis,
@@ -256,7 +249,7 @@ class RedisPipeline:
 
         self._state = None
 
-    def _get_state(self) -> RedisPipelineState:
+    cdef RedisPipelineState _get_state(self):
         if self._state is None:
             self._state = RedisPipelineState(self)
         return self._state
@@ -266,7 +259,7 @@ class RedisPipeline:
             state.execute()
             self._state = None
 
-    def lease_get(self, key: str) -> LeaseGetResult:
+    def lease_get(self, str key):
         if self._state is None:
             self._state = RedisPipelineState(self)
 
@@ -276,6 +269,7 @@ class RedisPipeline:
         state.keys.append(key)
 
         # do init get result
+        cdef _RedisGetResult result
         if len(_P) == 0:
             result = _RedisGetResult()
         else:
@@ -318,7 +312,7 @@ class RedisPipeline:
         return lease_set_fn
 
     def delete(self, key: str) -> Promise[DeleteResponse]:
-        state = self._get_state()
+        cdef RedisPipelineState state = self._get_state()
         index = state.add_delete_op(key)
 
         def delete_fn() -> DeleteResponse:
@@ -349,20 +343,19 @@ class RedisPipeline:
         self.finish()
 
 
-class RedisClient:
-    __slots__ = ('_client', '_get_script', '_set_script',
-                 '_min_ttl', '_max_ttl', '_max_keys_per_batch')
-    _client: redis.Redis
-    _get_script: Script
-    _set_script: Script
-    _min_ttl: int
-    _max_ttl: int
-    _max_keys_per_batch: int
+cdef class RedisClient:
+    cdef:
+        object _client
+        object _get_script
+        object _set_script
+        int _min_ttl
+        int _max_ttl
+        int _max_keys_per_batch
 
     def __init__(
-            self, r: redis.Redis,
-            min_ttl=6 * 3600, max_ttl=12 * 3600,
-            max_keys_per_batch=100,
+            self, object r,
+            int min_ttl=6 * 3600, int max_ttl=12 * 3600,
+            int max_keys_per_batch=100,
     ):
         self._client = r
         self._get_script = self._client.register_script(LEASE_GET_SCRIPT)
@@ -371,7 +364,7 @@ class RedisClient:
         self._max_ttl = max_ttl
         self._max_keys_per_batch = max_keys_per_batch
 
-    def pipeline(self, sess: Optional[Session] = None) -> Pipeline:
+    cpdef object pipeline(self, object sess = None):
         return RedisPipeline(
             r=self._client,
             get_script=self._get_script,
