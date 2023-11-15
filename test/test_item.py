@@ -9,9 +9,9 @@ from typing import List, Union
 
 import redis
 
-from memproxy import Item, RedisClient, Promise, new_json_codec, ItemCodec, new_multi_get_filler
-from memproxy import LeaseGetResult
-from memproxy import Pipeline, Session, DeleteResponse, LeaseSetResponse, LeaseGetResponse, FillerFunc
+from memproxy import Item, RedisClient, new_json_codec, ItemCodec, new_multi_get_filler  # type: ignore
+from memproxy import LeaseGetResult, Promise
+from memproxy import Pipeline, DeleteResponse, LeaseSetResponse, LeaseGetResponse
 from memproxy.memproxy import LeaseGetResultFunc
 
 
@@ -66,7 +66,7 @@ class CapturedPipeline(Pipeline):
     def delete(self, key: str) -> Promise[DeleteResponse]:
         return self.pipe.delete(key)
 
-    def lower_session(self) -> Session:
+    def lower_session(self):
         return self.pipe.lower_session()
 
     def finish(self) -> None:
@@ -95,7 +95,7 @@ class TestItemIntegration(unittest.TestCase):
 
         self.fill_keys = []
 
-        self.it = Item[UserTest, int](
+        self.it = Item(
             pipe=self.pipe,
             key_fn=lambda user_id: f'user:{user_id}',
             filler=self.filler_func,
@@ -227,7 +227,7 @@ class TestItemIntegration(unittest.TestCase):
 
         codec.decode = decode_fn
 
-        it = Item[UserTest, int](
+        it = Item(
             pipe=self.pipe,
             key_fn=lambda user_id: f'user:{user_id}',
             filler=self.filler_func,
@@ -272,7 +272,7 @@ class TestItemRedisError(unittest.TestCase):
 
         self.fill_keys = []
 
-        self.it = Item[UserTest, int](
+        self.it = Item(
             pipe=self.pipe,
             key_fn=lambda user_id: f'user:{user_id}',
             filler=self.filler_func,
@@ -322,7 +322,7 @@ class TestItemBenchmark(unittest.TestCase):
     def run_multi_get(self) -> None:
         start = datetime.datetime.now()
 
-        it = Item[UserTest, int](
+        it = Item(
             pipe=self.pipe,
             key_fn=lambda user_id: f'user:{user_id}',
             filler=self.filler_func,
@@ -371,7 +371,7 @@ class TestMultiGetFiller(unittest.TestCase):
         self.fill_keys = []
         self.default = UserTest(id=0, name='', age=0)
 
-    def new_filler(self) -> FillerFunc[int, UserTest]:
+    def new_filler(self):
         return new_multi_get_filler(
             fill_func=self.fill_func,
             get_key_func=UserTest.get_key,
@@ -491,7 +491,7 @@ class TestItemGetMulti(unittest.TestCase):
 
         self.fill_keys = []
 
-        self.it = Item[UserTest, int](
+        self.it = Item(
             pipe=self.pipe,
             key_fn=lambda user_id: f'user:{user_id}',
             filler=new_multi_get_filler(

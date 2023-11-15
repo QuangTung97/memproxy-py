@@ -11,7 +11,7 @@ setuptools.setup(
     license="MIT",
     keywords=["Redis", "key-value store", "caching"],
 
-    ext_modules=cythonize('memproxy/*.pyx', language_level="3str"),
+    ext_modules=cythonize('memproxy/*.pyx', language_level="3"),
 
     author="quangtung97",
     author_email="quangtung29121997@gmail.com",

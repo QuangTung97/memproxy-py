@@ -1,25 +1,17 @@
-from __future__ import annotations
-
 import dataclasses
 import json
 import logging
-from dataclasses import dataclass
-from typing import Generic, TypeVar, Callable, Any, List, Optional, Dict
 
-from .memproxy import LeaseGetResult
-from .memproxy import Promise, Pipeline, Session
+from memproxy.session cimport Session
 
-T = TypeVar("T")
-K = TypeVar("K")
+cdef class ItemCodec:
+    cdef:
+        public object encode
+        public object decode
 
-KeyNameFunc = Callable[[K], str]  # K -> str
-FillerFunc = Callable[[K], Promise[T]]  # K -> Promise[T]
-
-
-@dataclass
-class ItemCodec(Generic[T]):
-    encode: Callable[[T], bytes]
-    decode: Callable[[bytes], T]
+    def __init__(self, object encode, object decode):
+        self.encode = encode
+        self.decode = decode
 
 
 class DataclassJSONEncoder(json.JSONEncoder):
@@ -29,32 +21,31 @@ class DataclassJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def new_json_codec(cls: Any) -> ItemCodec[T]:
+def new_json_codec(object cls):
     return ItemCodec(
         encode=lambda x: json.dumps(x, cls=DataclassJSONEncoder).encode(),
         decode=lambda d: cls(**json.loads(d)),
     )
 
 
-class _ItemConfig(Generic[T, K]):
-    __slots__ = ('pipe', 'key_fn', 'sess', 'codec', 'filler',
-                 'hit_count', 'fill_count', 'cache_error_count', 'decode_error_count')
+cdef class _ItemConfig:
+    cdef:
+        object pipe
+        object key_fn
+        Session sess
+        ItemCodec codec
+        object filler
 
-    pipe: Pipeline
-    key_fn: KeyNameFunc
-    sess: Session
-    codec: ItemCodec
-    filler: FillerFunc
-
-    hit_count: int
-    fill_count: int
-    cache_error_count: int
-    decode_error_count: int
+        size_t hit_count
+        size_t fill_count
+        size_t cache_error_count
+        size_t decode_error_count
 
     def __init__(
-            self, pipe: Pipeline,
-            key_fn: Callable[[K], str], filler: Callable[[K], Promise[T]],
-            codec: ItemCodec[T],
+            self, object pipe,
+            object key_fn,
+            object filler,
+            ItemCodec codec,
     ):
         self.pipe = pipe
         self.key_fn = key_fn
@@ -68,21 +59,20 @@ class _ItemConfig(Generic[T, K]):
         self.decode_error_count = 0
 
 
-class _ItemState(Generic[T, K]):
-    __slots__ = 'conf', 'key', 'key_str', 'lease_get_fn', 'cas', '_fill_fn', 'result'
+cdef class _ItemState:
+    cdef:
+        _ItemConfig conf
 
-    conf: _ItemConfig[T, K]
+        object key
+        str key_str
+        object lease_get_fn
+        size_t cas
 
-    key: K
-    key_str: str
-    lease_get_fn: LeaseGetResult
-    cas: int
+        object _fill_fn
 
-    _fill_fn: Promise[T]
+        object result
 
-    result: T
-
-    def _handle_set_back(self):
+    cdef void _handle_set_back(self):
         data = self.conf.codec.encode(self.result)
         set_fn = self.conf.pipe.lease_set(key=self.key_str, cas=self.cas, data=data)
 
@@ -91,7 +81,7 @@ class _ItemState(Generic[T, K]):
 
         self.conf.sess.add_next_call(handle_set_fn)
 
-    def _handle_fill_fn(self):
+    cdef void _handle_fill_fn(self):
         self.result = self._fill_fn()
 
         if self.cas <= 0:
@@ -99,15 +89,15 @@ class _ItemState(Generic[T, K]):
 
         self.conf.sess.add_next_call(self._handle_set_back)
 
-    def _handle_filling(self):
+    cdef void _handle_filling(self):
         self.conf.fill_count += 1
         self._fill_fn = self.conf.filler(self.key)
         self.conf.sess.add_next_call(self._handle_fill_fn)
 
     def __call__(self) -> None:
-        get_resp = self.lease_get_fn.result()
+        cdef object get_resp = self.lease_get_fn.result()
 
-        resp_error: Optional[str] = get_resp[3]
+        cdef str resp_error = get_resp[3]
         if get_resp[0] == 1:
             self.conf.hit_count += 1
             try:
@@ -127,7 +117,7 @@ class _ItemState(Generic[T, K]):
 
         self._handle_filling()
 
-    def result_func(self) -> T:
+    def result_func(self):
         if self.conf.sess.is_dirty:
             self.conf.sess.execute()
 
@@ -139,26 +129,26 @@ class _ItemState(Generic[T, K]):
         return r
 
 
-item_state_pool: List[Any] = []
-_P = item_state_pool
+cdef list item_state_pool = []
+cdef list _P = item_state_pool
 
 
-class Item(Generic[T, K]):
-    __slots__ = '_conf'
-
-    _conf: _ItemConfig[T, K]
+cdef class Item:
+    cdef:
+        _ItemConfig _conf
 
     def __init__(
-            self, pipe: Pipeline,
-            key_fn: Callable[[K], str], filler: Callable[[K], Promise[T]],
-            codec: ItemCodec[T],
+            self, object pipe,
+            object key_fn, object filler,
+            ItemCodec codec,
     ):
         self._conf = _ItemConfig(pipe=pipe, key_fn=key_fn, filler=filler, codec=codec)
 
-    def get(self, key: K) -> Promise[T]:
+    def get(self, object key):
         # do init item state
+        cdef _ItemState state
         if len(_P) == 0:
-            state: _ItemState[T, K] = _ItemState()
+            state = _ItemState()
         else:
             state = _P.pop()
 
@@ -172,13 +162,14 @@ class Item(Generic[T, K]):
 
         return state.result_func
 
-    def get_multi(self, keys: List[K]) -> Promise[List[T]]:
-        states: List[_ItemState[T, K]] = []
+    def get_multi(self, list keys):
+        cdef list states = []
+        cdef _ItemState state
 
         for key in keys:
             # do init item state
             if len(_P) == 0:
-                state: _ItemState[T, K] = _ItemState()
+                state = _ItemState()
             else:
                 state = _P.pop()
 
@@ -192,15 +183,15 @@ class Item(Generic[T, K]):
 
             states.append(state)
 
-        def result_func() -> List[T]:
-            result: List[T] = []
+        def result_func():
+            cdef list result = []
             for resp_state in states:
                 result.append(resp_state.result_func())
             return result
 
         return result_func
 
-    def compute_key_name(self, key: K) -> str:
+    def compute_key_name(self, object key) -> str:
         return self._conf.key_fn(key)
 
     @property
@@ -220,50 +211,44 @@ class Item(Generic[T, K]):
         return self._conf.decode_error_count
 
 
-class _MultiGetState(Generic[T, K]):
-    __slots__ = ('keys', 'result', 'completed')
-
-    keys: List[K]
-    result: Dict[K, T]
-    completed: bool
+cdef class _MultiGetState:
+    cdef:
+        list keys
+        dict result
+        bint completed
 
     def __init__(self):
         self.keys = []
         self.completed = False
         self.result = {}
 
-    def add_key(self, key: K):
+    cdef add_key(self, object key):
         self.keys.append(key)
 
 
-MultiGetFillFunc = Callable[[List[K]], List[T]]  # [K] -> [T]
-GetKeyFunc = Callable[[T], K]  # T -> K
+cdef class _MultiGetFunc:
+    cdef:
+        _MultiGetState _state
+        object _fill_func
+        object _get_key_func
+        object _default
 
-
-class _MultiGetFunc(Generic[T, K]):
-    __slots__ = '_state', '_fill_func', '_get_key_func', '_default'
-
-    _state: Optional[_MultiGetState]
-    _fill_func: MultiGetFillFunc
-    _get_key_func: GetKeyFunc
-    _default: T
-
-    def __init__(self, fill_func: MultiGetFillFunc, key_func: GetKeyFunc, default: T):
+    def __init__(self, object fill_func, object key_func, object default):
         self._state = None
         self._fill_func = fill_func
         self._get_key_func = key_func
         self._default = default
 
-    def _get_state(self) -> _MultiGetState:
+    cdef _MultiGetState _get_state(self):
         if self._state is None:
             self._state = _MultiGetState()
         return self._state
 
-    def result_func(self, key: K) -> Promise[T]:
-        state = self._get_state()
+    def result_func(self, object key):
+        cdef _MultiGetState state = self._get_state()
         state.add_key(key)
 
-        def resp_func() -> T:
+        def resp_func():
             if not state.completed:
                 values = self._fill_func(state.keys)
 
@@ -281,9 +266,9 @@ class _MultiGetFunc(Generic[T, K]):
 
 # from [K] -> [T] to K -> Promise[T]
 def new_multi_get_filler(
-        fill_func: MultiGetFillFunc[K, T],
-        get_key_func: GetKeyFunc,
-        default: T,
-) -> FillerFunc:
-    fn = _MultiGetFunc[T, K](fill_func=fill_func, key_func=get_key_func, default=default)
+        object fill_func,
+        object get_key_func,
+        object default,
+):
+    fn = _MultiGetFunc(fill_func=fill_func, key_func=get_key_func, default=default)
     return fn.result_func
