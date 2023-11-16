@@ -150,7 +150,8 @@ class Item(Generic[T, K]):
 
     def __init__(
             self, pipe: Pipeline,
-            key_fn: Callable[[K], str], filler: Callable[[K], Promise[T]],
+            key_fn: Callable[[K], str],  # K -> str
+            filler: Callable[[K], Promise[T]],  # K -> () -> T
             codec: ItemCodec[T],
     ):
         self._conf = _ItemConfig(pipe=pipe, key_fn=key_fn, filler=filler, codec=codec)
@@ -243,12 +244,17 @@ GetKeyFunc = Callable[[T], K]  # T -> K
 class _MultiGetFunc(Generic[T, K]):
     __slots__ = '_state', '_fill_func', '_get_key_func', '_default'
 
-    _state: Optional[_MultiGetState]
+    _state: Optional[_MultiGetState[T, K]]
     _fill_func: MultiGetFillFunc
     _get_key_func: GetKeyFunc
     _default: T
 
-    def __init__(self, fill_func: MultiGetFillFunc, key_func: GetKeyFunc, default: T):
+    def __init__(
+            self,
+            fill_func: Callable[[List[K]], List[T]],  # List[K] -> List[T]
+            key_func: Callable[[T], K],  # T -> K
+            default: T,
+    ):
         self._state = None
         self._fill_func = fill_func
         self._get_key_func = key_func
@@ -281,9 +287,9 @@ class _MultiGetFunc(Generic[T, K]):
 
 # from [K] -> [T] to K -> Promise[T]
 def new_multi_get_filler(
-        fill_func: MultiGetFillFunc[K, T],
-        get_key_func: GetKeyFunc,
+        fill_func: Callable[[List[K]], List[T]],  # List[K] -> List[T]
+        get_key_func: Callable[[T], K],  # T -> K
         default: T,
 ) -> FillerFunc:
-    fn = _MultiGetFunc[T, K](fill_func=fill_func, key_func=get_key_func, default=default)
+    fn = _MultiGetFunc(fill_func=fill_func, key_func=get_key_func, default=default)
     return fn.result_func
