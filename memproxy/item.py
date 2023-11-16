@@ -173,7 +173,7 @@ class Item(Generic[T, K]):
 
         return state.result_func
 
-    def get_multi(self, keys: List[K]) -> Promise[List[T]]:
+    def get_multi(self, keys: List[K]) -> Callable[[], List[T]]:
         states: List[_ItemState[T, K]] = []
 
         for key in keys:
