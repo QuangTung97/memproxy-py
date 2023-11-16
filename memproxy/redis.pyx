@@ -298,8 +298,12 @@ cdef class RedisPipeline(Pipeline):
 
         cdef int index = state.add_set_op(key=key, cas=cas, val=data, ttl=ttl)
 
+
         def lease_set_fn() -> LeaseSetResponse:
             self.execute(state)
+
+            cdef LeaseSetStatus status
+            cdef LeaseSetResponse resp = LeaseSetResponse()
 
             if state.redis_error is not None:
                 return LeaseSetResponse(
@@ -307,7 +311,8 @@ cdef class RedisPipeline(Pipeline):
                     error=f'Redis Set: {state.redis_error}'
                 )
 
-            set_resp = state.set_result[index]
+            cdef bytes set_resp = state.set_result[index]
+            print('SET RESP:', set_resp)
 
             if set_resp == b'OK':
                 status = LeaseSetStatus.LEASE_SET_OK
@@ -316,9 +321,13 @@ cdef class RedisPipeline(Pipeline):
             else:
                 status = LeaseSetStatus.LEASE_SET_CAS_MISMATCH
 
-            return LeaseSetResponse(status=status)
+            resp.status = status
+            return resp
 
         return lease_set_fn
+
+    def py_lease_set(self, key, cas, data):
+        return self.lease_set(key, cas, data)
 
     cdef object delete(self, str key):
         cdef RedisPipelineState state = self._get_state()

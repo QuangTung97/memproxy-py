@@ -16,11 +16,18 @@ LEASE_GRANTED: int = 2
 ERROR: int = 3
 
 
-def lease_get_resp(status: int, data: bytes, cas: int, error: Optional[str] = None):
+def lease_get_resp(status: int, data: bytes, cas: int, error: Optional[str] = None) -> LeaseGetResponse:
     resp = LeaseGetResponse()
     resp.status = status
     resp.data = data
     resp.cas = cas
+    resp.error = error
+    return resp
+
+
+def lease_set_resp(status: LeaseSetStatus, error: str = None) -> LeaseSetResponse:
+    resp = LeaseSetResponse()
+    resp.status = status.value
     resp.error = error
     return resp
 
@@ -30,6 +37,10 @@ class TestCase(unittest.TestCase):
         self.assertEqual(a.status, b.status)
         self.assertEqual(a.data, b.data)
         self.assertEqual(a.cas, b.cas)
+        self.assertEqual(a.error, b.error)
+
+    def assert_set_equal(self, a: LeaseSetResponse, b: LeaseSetResponse):
+        self.assertEqual(a.status, b.status)
         self.assertEqual(a.error, b.error)
 
 
@@ -64,21 +75,21 @@ class TestRedisClient(TestCase):
 
     def test_get_multiple_keys(self) -> None:
         c = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
-        fn1 = pipe.lease_get('key01')
-        fn2 = pipe.lease_get('key02')
+        fn1 = pipe.py_lease_get('key01')
+        fn2 = pipe.py_lease_get('key02')
 
-        resp1 = fn1.result()
-        resp2 = fn2.result()
+        resp1 = fn1.py_result()
+        resp2 = fn2.py_result()
 
-        self.assertEqual(lease_get_resp(
+        self.assert_get_equal(lease_get_resp(
             status=LEASE_GRANTED,
             data=b'',
             cas=1,
         ), resp1)
 
-        self.assertEqual(lease_get_resp(
+        self.assert_get_equal(lease_get_resp(
             status=LEASE_GRANTED,
             data=b'',
             cas=2,
@@ -86,16 +97,16 @@ class TestRedisClient(TestCase):
 
     def test_get_then_set(self) -> None:
         c = RedisClient(self.redis_client, min_ttl=80, max_ttl=90)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
-        set_fn1 = pipe.lease_set('key01', resp[2], b'some-data')
-        self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.OK), set_fn1())
+        set_fn1 = pipe.py_lease_set('key01', resp.status, b'some-data')
+        self.assert_set_equal(lease_set_resp(status=LeaseSetStatus.OK), set_fn1())
 
-        fn2 = pipe.lease_get('key01')
-        resp = fn2.result()
+        fn2 = pipe.py_lease_get('key01')
+        resp = fn2.py_result()
 
         self.assertEqual(lease_get_resp(
             status=FOUND,
@@ -109,14 +120,14 @@ class TestRedisClient(TestCase):
 
     def test_set_then_get(self) -> None:
         c = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
         self.addCleanup(pipe.finish)
 
         set_fn1 = pipe.lease_set('key01', 11, b'some-data')
         self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.NOT_FOUND), set_fn1())
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
         self.assertEqual(lease_get_resp(
             status=LEASE_GRANTED,
@@ -126,16 +137,16 @@ class TestRedisClient(TestCase):
 
     def test_get_then_set_with_incorrect_cas_value(self) -> None:
         c = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
         set_fn1 = pipe.lease_set('key01', resp[2] + 1, b'some-data')
         self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.CAS_MISMATCH), set_fn1())
 
-        fn2 = pipe.lease_get('key01')
-        resp = fn2.result()
+        fn2 = pipe.py_lease_get('key01')
+        resp = fn2.py_result()
 
         self.assertEqual(lease_get_resp(
             status=LEASE_GRANTED,
@@ -145,13 +156,13 @@ class TestRedisClient(TestCase):
 
     def test_get_then_delete(self) -> None:
         c = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
         self.addCleanup(pipe.finish)
 
         self.redis_client.set('__next_cas', '130')
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
         self.assertEqual(lease_get_resp(
             status=LEASE_GRANTED,
@@ -173,10 +184,10 @@ class TestRedisClient(TestCase):
 
     def test_get_delete_then_set(self) -> None:
         c = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
         delete_fn1 = pipe.delete('key01')
         delete_fn1()
@@ -184,8 +195,8 @@ class TestRedisClient(TestCase):
         set_fn1 = pipe.lease_set('key01', resp[2], b'value01')
         self.assertEqual(LeaseSetResponse(status=LeaseSetStatus.NOT_FOUND), set_fn1())
 
-        fn2 = pipe.lease_get('key01')
-        resp = fn2.result()
+        fn2 = pipe.py_lease_get('key01')
+        resp = fn2.py_result()
 
         self.assertEqual(lease_get_resp(
             status=LEASE_GRANTED,
@@ -195,10 +206,10 @@ class TestRedisClient(TestCase):
 
     def test_get_set_then_finish(self) -> None:
         c = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
         pipe.lease_set('key01', resp[2], b'value01')
         pipe.finish()
@@ -214,8 +225,8 @@ class TestRedisClient(TestCase):
     def test_using_with(self) -> None:
         c = RedisClient(self.redis_client)
         with c.pipeline() as pipe:
-            fn1 = pipe.lease_get('key01')
-            resp = fn1.result()
+            fn1 = pipe.py_lease_get('key01')
+            resp = fn1.py_result()
 
             pipe.lease_set('key01', resp[2], b'value01')
 
@@ -226,11 +237,11 @@ class TestRedisClient(TestCase):
         c = RedisClient(self.redis_client)
         pipe = c.pipeline()
 
-        fn1 = pipe.lease_get('key01')
-        fn2 = pipe.lease_get('key02')
+        fn1 = pipe.py_lease_get('key01')
+        fn2 = pipe.py_lease_get('key02')
 
-        resp1 = fn1.result()
-        resp2 = fn2.result()
+        resp1 = fn1.py_result()
+        resp2 = fn2.py_result()
 
         set_fn1 = pipe.lease_set('key01', resp1[2], b'value01')
         set_fn2 = pipe.lease_set('key02', resp2[2], b'value02')
@@ -239,11 +250,11 @@ class TestRedisClient(TestCase):
         set_fn2()
 
         # Get Again
-        fn1 = pipe.lease_get('key01')
-        fn2 = pipe.lease_get('key02')
+        fn1 = pipe.py_lease_get('key01')
+        fn2 = pipe.py_lease_get('key02')
 
-        resp1 = fn1.result()
-        resp2 = fn2.result()
+        resp1 = fn1.py_result()
+        resp2 = fn2.py_result()
 
         self.assertEqual(lease_get_resp(
             status=FOUND,
@@ -270,12 +281,12 @@ class TestRedisClient(TestCase):
 
     def test_get_incorrect_cas(self) -> None:
         c: CacheClient = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
         self.redis_client.set('key01', b'cas:abc')
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
         self.assertEqual(lease_get_resp(
             status=ERROR,
@@ -286,12 +297,12 @@ class TestRedisClient(TestCase):
 
     def test_get_without_prefix(self) -> None:
         c: CacheClient = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
         self.redis_client.set('key01', b'hello01')
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
         self.assertEqual(lease_get_resp(
             status=FOUND,
@@ -301,7 +312,7 @@ class TestRedisClient(TestCase):
 
     def test_get_lower_session(self) -> None:
         c: CacheClient = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
         sess = pipe.lower_session()
 
@@ -316,12 +327,12 @@ class TestRedisClient(TestCase):
 
     def test_flush_script_in_between(self) -> None:
         c: CacheClient = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
         self.redis_client.set('__next_cas', 130)
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
         self.assertEqual(lease_get_resp(
             status=LEASE_GRANTED,
@@ -334,8 +345,8 @@ class TestRedisClient(TestCase):
         pipe.delete('key01')()
 
         # Get Again
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
         self.assertEqual(lease_get_resp(
             status=LEASE_GRANTED,
@@ -350,10 +361,10 @@ class TestRedisClientError(unittest.TestCase):
 
     def test_lease_get(self) -> None:
         c: CacheClient = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
         self.assertEqual(lease_get_resp(
             status=ERROR,
@@ -364,7 +375,7 @@ class TestRedisClientError(unittest.TestCase):
 
     def test_lease_set(self) -> None:
         c: CacheClient = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
         fn1 = pipe.lease_set('key01', 11, b'some-data')
         resp = fn1()
@@ -376,7 +387,7 @@ class TestRedisClientError(unittest.TestCase):
 
     def test_delete(self) -> None:
         c: CacheClient = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
         fn1 = pipe.delete('key01')
         resp = fn1()
@@ -424,10 +435,10 @@ class TestRedisClientWithCapturing(unittest.TestCase):
 
     def test_get_and_set_single_key(self) -> None:
         c: CacheClient = RedisClient(self.redis, min_ttl=70, max_ttl=70)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
-        fn1 = pipe.lease_get('key01')
-        resp1 = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp1 = fn1.py_result()
         self.assertEqual(lease_get_resp(data=b'', cas=1, status=LEASE_GRANTED), resp1)
 
         set_fn1 = pipe.lease_set('key01', resp1[2], b'value01')
@@ -455,17 +466,17 @@ class TestRedisClientWithCapturing(unittest.TestCase):
 
     def test_get_multi_keys__exceed_max_batch(self) -> None:
         c: CacheClient = RedisClient(self.redis, max_keys_per_batch=3)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
-        fn1 = pipe.lease_get('key01')
-        fn2 = pipe.lease_get('key02')
-        fn3 = pipe.lease_get('key03')
-        fn4 = pipe.lease_get('key04')
+        fn1 = pipe.py_lease_get('key01')
+        fn2 = pipe.py_lease_get('key02')
+        fn3 = pipe.py_lease_get('key03')
+        fn4 = pipe.py_lease_get('key04')
 
-        self.assertEqual(lease_get_resp(data=b'', cas=1, status=LEASE_GRANTED), fn1.result())
-        self.assertEqual(lease_get_resp(data=b'', cas=2, status=LEASE_GRANTED), fn2.result())
-        self.assertEqual(lease_get_resp(data=b'', cas=3, status=LEASE_GRANTED), fn3.result())
-        self.assertEqual(lease_get_resp(data=b'', cas=4, status=LEASE_GRANTED), fn4.result())
+        self.assertEqual(lease_get_resp(data=b'', cas=1, status=LEASE_GRANTED), fn1.py_result())
+        self.assertEqual(lease_get_resp(data=b'', cas=2, status=LEASE_GRANTED), fn2.py_result())
+        self.assertEqual(lease_get_resp(data=b'', cas=3, status=LEASE_GRANTED), fn3.py_result())
+        self.assertEqual(lease_get_resp(data=b'', cas=4, status=LEASE_GRANTED), fn4.py_result())
 
         self.assertEqual(2, len(self.redis.text_list))
 
@@ -497,13 +508,13 @@ class TestRedisClientWithCapturing(unittest.TestCase):
         delete_fn2()
         delete_fn3()
 
-        fn1 = pipe.lease_get('key01')
-        fn2 = pipe.lease_get('key02')
-        fn3 = pipe.lease_get('key03')
+        fn1 = pipe.py_lease_get('key01')
+        fn2 = pipe.py_lease_get('key02')
+        fn3 = pipe.py_lease_get('key03')
 
-        self.assertEqual(lease_get_resp(data=b'', cas=5, status=LEASE_GRANTED), fn1.result())
-        self.assertEqual(lease_get_resp(data=b'', cas=6, status=LEASE_GRANTED), fn2.result())
-        self.assertEqual(lease_get_resp(data=b'', cas=7, status=LEASE_GRANTED), fn3.result())
+        self.assertEqual(lease_get_resp(data=b'', cas=5, status=LEASE_GRANTED), fn1.py_result())
+        self.assertEqual(lease_get_resp(data=b'', cas=6, status=LEASE_GRANTED), fn2.py_result())
+        self.assertEqual(lease_get_resp(data=b'', cas=7, status=LEASE_GRANTED), fn3.py_result())
 
         self.assertEqual(3, len(calls))
 
@@ -517,17 +528,17 @@ class TestRedisClientWithCapturing(unittest.TestCase):
 
     def test_get_and_set_multi_keys__exceed_max_batch(self) -> None:
         c: CacheClient = RedisClient(self.redis, max_keys_per_batch=3, min_ttl=70, max_ttl=70)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
-        fn1 = pipe.lease_get('key01')
-        fn2 = pipe.lease_get('key02')
-        fn3 = pipe.lease_get('key03')
-        fn4 = pipe.lease_get('key04')
+        fn1 = pipe.py_lease_get('key01')
+        fn2 = pipe.py_lease_get('key02')
+        fn3 = pipe.py_lease_get('key03')
+        fn4 = pipe.py_lease_get('key04')
 
-        resp1 = fn1.result()
-        resp2 = fn2.result()
-        resp3 = fn3.result()
-        resp4 = fn4.result()
+        resp1 = fn1.py_result()
+        resp2 = fn2.py_result()
+        resp3 = fn3.py_result()
+        resp4 = fn4.py_result()
 
         set_fn1 = pipe.lease_set('key01', resp1[2], b'value01')
         pipe.lease_set('key02', resp2[2], b'value02')
@@ -562,8 +573,8 @@ class TestRedisClientWithCapturing(unittest.TestCase):
             ]
         }, call4.kwargs)
 
-        fn1 = pipe.lease_get('key01')
-        fn4 = pipe.lease_get('key04')
+        fn1 = pipe.py_lease_get('key01')
+        fn4 = pipe.py_lease_get('key04')
 
-        self.assertEqual(lease_get_resp(cas=0, data=b'value01', status=FOUND), fn1.result())
-        self.assertEqual(lease_get_resp(cas=0, data=b'value04', status=FOUND), fn4.result())
+        self.assertEqual(lease_get_resp(cas=0, data=b'value01', status=FOUND), fn1.py_result())
+        self.assertEqual(lease_get_resp(cas=0, data=b'value04', status=FOUND), fn4.py_result())

@@ -6,6 +6,16 @@ cdef class LeaseGetResponse:
         pass
 
 
+cdef class LeaseSetResponse:
+    def __init__(self):
+        pass
+
+
+cdef class DeleteResponse:
+    def __init__(self):
+        pass
+
+
 cdef class LeaseGetResult:
     cdef LeaseGetResponse result(self):
         return None
