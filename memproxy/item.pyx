@@ -3,6 +3,7 @@ import json
 import logging
 
 from memproxy.session cimport Session
+from memproxy.memproxy cimport Pipeline, LeaseGetResult, LeaseGetResponse, LeaseGetStatus
 
 cdef class ItemCodec:
     cdef:
@@ -30,7 +31,7 @@ def new_json_codec(object cls):
 
 cdef class _ItemConfig:
     cdef:
-        object pipe
+        Pipeline pipe
         object key_fn
         Session sess
         ItemCodec codec
@@ -42,7 +43,7 @@ cdef class _ItemConfig:
         size_t decode_error_count
 
     def __init__(
-            self, object pipe,
+            self, Pipeline pipe,
             object key_fn,
             object filler,
             ItemCodec codec,
@@ -65,7 +66,7 @@ cdef class _ItemState:
 
         object key
         str key_str
-        object lease_get_fn
+        LeaseGetResult lease_get_fn
         size_t cas
 
         object _fill_fn
@@ -95,29 +96,29 @@ cdef class _ItemState:
         self.conf.sess.add_next_call(self._handle_fill_fn)
 
     def __call__(self) -> None:
-        cdef object get_resp = self.lease_get_fn.result()
+        cdef LeaseGetResponse get_resp = self.lease_get_fn.result()
 
-        cdef str resp_error = get_resp[3]
-        if get_resp[0] == 1:
+        cdef str resp_error = get_resp.error
+        if get_resp.status == LeaseGetStatus.LEASE_GET_OK:
             self.conf.hit_count += 1
             try:
-                self.result = self.conf.codec.decode(get_resp[1])
+                self.result = self.conf.codec.decode(get_resp.data)
                 return
             except Exception as e:
                 self.conf.decode_error_count += 1
                 resp_error = f'Decode error. {str(e)}'
 
-        if get_resp[0] == 2:
-            self.cas = get_resp[2]
+        if get_resp.status == LeaseGetStatus.LEASE_GET_LEASE_GRANTED:
+            self.cas = get_resp.cas
         else:
-            if get_resp[0] == 3:
+            if get_resp.status == LeaseGetStatus.LEASE_GET_ERROR:
                 self.conf.cache_error_count += 1
             logging.error('Item get error. %s', resp_error)
             self.cas = 0
 
         self._handle_filling()
 
-    def result_func(self):
+    cdef object result_func(self):
         if self.conf.sess.is_dirty:
             self.conf.sess.execute()
 
@@ -138,7 +139,7 @@ cdef class Item:
         _ItemConfig _conf
 
     def __init__(
-            self, object pipe,
+            self, Pipeline pipe,
             object key_fn, object filler,
             ItemCodec codec,
     ):
@@ -186,6 +187,7 @@ cdef class Item:
 
         def result_func():
             cdef list result = []
+            cdef _ItemState resp_state
             for resp_state in states:
                 result.append(resp_state.result_func())
             return result

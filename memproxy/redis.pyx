@@ -1,15 +1,10 @@
-from __future__ import annotations
-
 import random
 
-import redis
-from redis.commands.core import Script
-
-from .memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
-from .memproxy import LeaseGetResult
-from .memproxy import LeaseSetStatus, DeleteStatus
-from .memproxy import Pipeline, Promise
-from .session import Session
+from memproxy.memproxy cimport LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from memproxy.memproxy cimport LeaseGetResult
+from memproxy.memproxy cimport LeaseGetStatus, LeaseSetStatus, DeleteStatus
+from memproxy.memproxy cimport Pipeline, CacheClient
+from memproxy.session cimport Session
 
 cdef str LEASE_GET_SCRIPT = """
 local result = {}
@@ -176,21 +171,25 @@ cdef class RedisPipelineState:
         return self._pipe.set_script(keys=keys, args=args, client=client)
 
 
-cdef class _RedisGetResult:
+cdef class _RedisGetResult(LeaseGetResult):
     cdef:
         RedisPipeline pipe
         RedisPipelineState state
         int index
 
-    def result(self) -> LeaseGetResponse:
+    cdef LeaseGetResponse result(self):
+        cdef LeaseGetResponse resp = LeaseGetResponse()
+        cdef size_t cas
+
         if not self.state.completed:
             self.pipe.execute(self.state)
 
         if self.state.redis_error is not None:
             release_get_result(self)
+            # return resp
             return 3, b'', 0, f'Redis Get: {self.state.redis_error}'
 
-        get_resp = self.state.get_result[self.index]
+        cdef bytes get_resp = self.state.get_result[self.index]
 
         release_get_result(self)
 
@@ -203,9 +202,16 @@ cdef class _RedisGetResult:
                 return 3, b'', 0, f'Value "{num_str}" is not a number'
 
             cas = int(num_str)
-            return 2, b'', cas, None
+
+            resp.status = LeaseGetStatus.LEASE_GET_LEASE_GRANTED
+            resp.data = b''
+            resp.cas = cas
+            return resp
         else:
             return 1, get_resp, 0, None
+    
+    def py_result(self):
+        return self.result()
 
 
 cdef list get_result_pool = []
@@ -218,23 +224,23 @@ cdef void release_get_result(_RedisGetResult r):
     _P.append(r)
 
 
-cdef class RedisPipeline:
+cdef class RedisPipeline(Pipeline):
     cdef:
         object client
         object get_script
         object set_script
-        object _sess
+        Session _sess
         int _min_ttl
         int _max_ttl
         int max_keys_per_batch
         RedisPipelineState _state
 
     def __init__(
-            self, r: redis.Redis,
-            get_script: Script, set_script: Script,
-            min_ttl: int, max_ttl: int,
-            sess: Optional[Session],
-            max_keys_per_batch: int,
+            self, object r,
+            object get_script, object set_script,
+            int min_ttl, int max_ttl,
+            Session sess,
+            int max_keys_per_batch,
     ):
         self.client = r
         self.get_script = get_script
@@ -254,18 +260,18 @@ cdef class RedisPipeline:
             self._state = RedisPipelineState(self)
         return self._state
 
-    def execute(self, state: RedisPipelineState):
+    cdef void execute(self, RedisPipelineState state):
         if not state.completed:
             state.execute()
             self._state = None
 
-    def lease_get(self, str key):
+    cdef LeaseGetResult lease_get(self, str key):
         if self._state is None:
             self._state = RedisPipelineState(self)
 
-        state = self._state
+        cdef RedisPipelineState state = self._state
 
-        index = len(state.keys)
+        cdef int index = len(state.keys)
         state.keys.append(key)
 
         # do init get result
@@ -281,69 +287,66 @@ cdef class RedisPipeline:
         # end init get result
 
         return result
+    
+    def py_lease_get(self, key):
+        return self.lease_get(key)
 
-    def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
-        state = self._get_state()
+    cdef object lease_set(self, str key, size_t cas, bytes data):
+        cdef RedisPipelineState state = self._get_state()
 
-        ttl = random.randrange(self._min_ttl, self._max_ttl + 1)
+        cdef int ttl = random.randrange(self._min_ttl, self._max_ttl + 1)
 
-        index = state.add_set_op(key=key, cas=cas, val=data, ttl=ttl)
+        cdef int index = state.add_set_op(key=key, cas=cas, val=data, ttl=ttl)
 
         def lease_set_fn() -> LeaseSetResponse:
             self.execute(state)
 
             if state.redis_error is not None:
                 return LeaseSetResponse(
-                    status=LeaseSetStatus.ERROR,
+                    status=LeaseSetStatus.LEASE_SET_ERROR,
                     error=f'Redis Set: {state.redis_error}'
                 )
 
             set_resp = state.set_result[index]
 
             if set_resp == b'OK':
-                status = LeaseSetStatus.OK
+                status = LeaseSetStatus.LEASE_SET_OK
             elif set_resp == b'NF':
-                status = LeaseSetStatus.NOT_FOUND
+                status = LeaseSetStatus.LEASE_SET_NOT_FOUND
             else:
-                status = LeaseSetStatus.CAS_MISMATCH
+                status = LeaseSetStatus.LEASE_SET_CAS_MISMATCH
 
             return LeaseSetResponse(status=status)
 
         return lease_set_fn
 
-    def delete(self, key: str) -> Promise[DeleteResponse]:
+    cdef object delete(self, str key):
         cdef RedisPipelineState state = self._get_state()
-        index = state.add_delete_op(key)
+        cdef int index = state.add_delete_op(key)
 
         def delete_fn() -> DeleteResponse:
             self.execute(state)
             if state.redis_error is not None:
                 return DeleteResponse(
-                    status=DeleteStatus.ERROR,
+                    status=DeleteStatus.DELETE_ERROR,
                     error=f'Redis Delete: {state.redis_error}'
                 )
 
             resp = state.delete_result[index]
-            status = DeleteStatus.OK if resp == 1 else DeleteStatus.NOT_FOUND
+            cdef DeleteStatus status = DeleteStatus.DELETE_OK if resp == 1 else DeleteStatus.DELETE_NOT_FOUND
             return DeleteResponse(status=status)
 
         return delete_fn
 
-    def lower_session(self) -> Session:
+    cdef Session lower_session(self):
         return self._sess
 
-    def finish(self) -> None:
+    cdef void finish(self):
         if self._state is not None:
             self.execute(self._state)
 
-    def __enter__(self):
-        return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.finish()
-
-
-cdef class RedisClient:
+cdef class RedisClient(CacheClient):
     cdef:
         object _client
         object _get_script
@@ -364,7 +367,7 @@ cdef class RedisClient:
         self._max_ttl = max_ttl
         self._max_keys_per_batch = max_keys_per_batch
 
-    cpdef object pipeline(self, object sess = None):
+    cpdef Pipeline pipeline(self, Session sess):
         return RedisPipeline(
             r=self._client,
             get_script=self._get_script,

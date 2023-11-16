@@ -7,20 +7,33 @@ import redis
 from redis.commands.core import Script
 from redis.typing import ScriptTextT
 
-from memproxy import CacheClient, RedisClient
-from memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
+from memproxy import CacheClient, RedisClient  # type: ignore
+from memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse  # type: ignore
 from memproxy import LeaseSetStatus, DeleteStatus
 
-FOUND = 1
+FOUND: int = 1
 LEASE_GRANTED: int = 2
-ERROR = 3
+ERROR: int = 3
 
 
-def lease_get_resp(status: int, data: bytes, cas: int, error: Optional[str] = None) -> LeaseGetResponse:
-    return status, data, cas, error
+def lease_get_resp(status: int, data: bytes, cas: int, error: Optional[str] = None):
+    resp = LeaseGetResponse()
+    resp.status = status
+    resp.data = data
+    resp.cas = cas
+    resp.error = error
+    return resp
 
 
-class TestRedisClient(unittest.TestCase):
+class TestCase(unittest.TestCase):
+    def assert_get_equal(self, a: LeaseGetResponse, b: LeaseGetResponse):
+        self.assertEqual(a.status, b.status)
+        self.assertEqual(a.data, b.data)
+        self.assertEqual(a.cas, b.cas)
+        self.assertEqual(a.error, b.error)
+
+
+class TestRedisClient(TestCase):
     def setUp(self):
         self.redis_client = redis.Redis()
         self.redis_client.flushall()
@@ -28,22 +41,22 @@ class TestRedisClient(unittest.TestCase):
 
     def test_get_single_key(self) -> None:
         c: CacheClient = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
 
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
-        self.assertEqual(lease_get_resp(
+        self.assert_get_equal(lease_get_resp(
             status=LEASE_GRANTED,
             data=bytes(),
             cas=1,
         ), resp)
 
         # Get Again
-        fn1 = pipe.lease_get('key01')
-        resp = fn1.result()
+        fn1 = pipe.py_lease_get('key01')
+        resp = fn1.py_result()
 
-        self.assertEqual(lease_get_resp(
+        self.assert_get_equal(lease_get_resp(
             status=LEASE_GRANTED,
             data=bytes(),
             cas=1,
@@ -195,7 +208,7 @@ class TestRedisClient(unittest.TestCase):
 
     def test_finish_empty(self) -> None:
         c = RedisClient(self.redis_client)
-        pipe = c.pipeline()
+        pipe = c.pipeline(None)
         pipe.finish()
 
     def test_using_with(self) -> None:

@@ -1,10 +1,10 @@
 import unittest
 from typing import Dict, Optional
 
-from memproxy import CacheClient, DeleteResponse, DeleteStatus
-from memproxy import LeaseGetResponse
-from memproxy import LeaseSetResponse, LeaseSetStatus
-from memproxy.proxy import ProxyCacheClient, ReplicatedRoute
+from memproxy import CacheClient, DeleteResponse  # type: ignore
+from memproxy import LeaseGetResponse  # type: ignore
+from memproxy import LeaseSetResponse  # type: ignore
+from memproxy.proxy import ProxyCacheClient, ReplicatedRoute  # type: ignore
 from .fake_pipe import ClientFake, global_actions, SetInput
 from .fake_stats import StatsFake
 
