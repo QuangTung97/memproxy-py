@@ -1,0 +1,4 @@
+[project]
+dependencies = [
+    "redis>=3.2.0"
+]

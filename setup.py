@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="memproxy",
-    version="0.3.0rc8",
+    version="0.3.0rc9",
     license="MIT",
     keywords=["Redis", "key-value store", "caching"],
 
