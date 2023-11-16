@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="memproxy",
-    version="0.3.0rc9",
+    version="0.3.0rc10",
     license="MIT",
     keywords=["Redis", "key-value store", "caching"],
 
@@ -29,5 +29,8 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     packages=['memproxy', 'memproxy.proxy'],
-    python_requires=">=3.8"
+    python_requires=">=3.8",
+    install_requires=[
+        'redis>=3.2.0',
+    ],
 )
