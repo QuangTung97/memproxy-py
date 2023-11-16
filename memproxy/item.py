@@ -290,6 +290,6 @@ def new_multi_get_filler(
         fill_func: Callable[[List[K]], List[T]],  # List[K] -> List[T]
         get_key_func: Callable[[T], K],  # T -> K
         default: T,
-) -> FillerFunc:
+) -> Callable[[K], Promise[T]]:  # K -> () -> T
     fn = _MultiGetFunc(fill_func=fill_func, key_func=get_key_func, default=default)
     return fn.result_func
