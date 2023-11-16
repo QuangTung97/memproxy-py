@@ -4,8 +4,6 @@ from typing import List, Dict, Any
 from typing import Optional
 
 import redis
-from redis.commands.core import Script
-from redis.typing import ScriptTextT
 
 from memproxy import CacheClient, RedisClient
 from memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
@@ -381,7 +379,7 @@ class ScriptCall:
 
 
 class CapturingRedis(redis.Redis):
-    text_list: List[ScriptTextT]
+    text_list: List[Any]
     script_calls: List[ScriptCall]
 
     def __init__(self, **kwargs):
@@ -389,7 +387,7 @@ class CapturingRedis(redis.Redis):
         self.script_calls = []
         super().__init__(**kwargs)
 
-    def register_script(self, script: ScriptTextT) -> Script:
+    def register_script(self, script: Any) -> Any:
         index = len(self.text_list)
         self.text_list.append(script)
 

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 
 import redis
-from redis.commands.core import Script
 
 from .memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from .memproxy import LeaseGetResult
@@ -224,8 +223,8 @@ class RedisPipeline:
                  '_min_ttl', '_max_ttl', 'max_keys_per_batch', '_state')
 
     client: redis.Redis
-    get_script: Script
-    set_script: Script
+    get_script: Any
+    set_script: Any
 
     _sess: Session
 
@@ -238,7 +237,7 @@ class RedisPipeline:
 
     def __init__(
             self, r: redis.Redis,
-            get_script: Script, set_script: Script,
+            get_script: Any, set_script: Any,
             min_ttl: int, max_ttl: int,
             sess: Optional[Session],
             max_keys_per_batch: int,
@@ -353,8 +352,8 @@ class RedisClient:
     __slots__ = ('_client', '_get_script', '_set_script',
                  '_min_ttl', '_max_ttl', '_max_keys_per_batch')
     _client: redis.Redis
-    _get_script: Script
-    _set_script: Script
+    _get_script: Any
+    _set_script: Any
     _min_ttl: int
     _max_ttl: int
     _max_keys_per_batch: int
