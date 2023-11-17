@@ -181,14 +181,15 @@ class _RedisGetResult:
     index: int
 
     def result(self) -> LeaseGetResponse:
-        if not self.state.completed:
-            self.pipe.execute(self.state)
+        state = self.state
+        if not state.completed:
+            self.pipe.execute(state)
 
-        if self.state.redis_error is not None:
+        if state.redis_error is not None:
             release_get_result(self)
-            return 3, b'', 0, f'Redis Get: {self.state.redis_error}'
+            return 3, b'', 0, f'Redis Get: {state.redis_error}'
 
-        get_resp = self.state.get_result[self.index]
+        get_resp = state.get_result[self.index]
 
         # release to pool
         if len(_P) < 4096:
