@@ -149,8 +149,9 @@ class _LeaseGetState:
         self.conf.sess.add_next_call(next_again_func)
 
     def result(self) -> LeaseGetResponse:
-        if self.conf.sess.is_dirty:
-            self.conf.execute()
+        conf = self.conf
+        if conf.sess.is_dirty:
+            conf.execute()
 
         resp = self.resp
 
@@ -231,6 +232,7 @@ class ProxyPipeline:
 
         # do init get state
         conf = self._conf
+
         state.conf = conf
         state.key = key
 
@@ -247,7 +249,7 @@ class ProxyPipeline:
         state.fn = state.pipe.lease_get(key)
         # end init get state
 
-        self._conf.sess.add_next_call(state)
+        conf.sess.add_next_call(state)
         return state
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:

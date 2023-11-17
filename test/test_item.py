@@ -114,6 +114,7 @@ class TestItemIntegration(unittest.TestCase):
         u = user_fn()
 
         self.assertEqual(UserTest(id=21, name='user-data:21', age=81), u)
+        self.assertEqual(0, it.bytes_read)
 
         resp = self.redis_client.get('user:21')
         self.assertEqual(b'val:{"id": 21, "name": "user-data:21", "age": 81}', resp)
@@ -133,6 +134,7 @@ class TestItemIntegration(unittest.TestCase):
 
         self.assertEqual(1, it.hit_count)
         self.assertEqual(1, it.fill_count)
+        self.assertEqual(len(b'{"id": 21, "name": "user-data:21", "age": 81}'), it.bytes_read)
 
         # Get Again on more time
         user_fn = it.get(21)
@@ -145,6 +147,20 @@ class TestItemIntegration(unittest.TestCase):
         self.assertEqual(2, it.hit_count)
         self.assertEqual(1, it.fill_count)
         self.assertEqual(0, it.cache_error_count)
+        self.assertEqual(2 * len(b'{"id": 21, "name": "user-data:21", "age": 81}'), it.bytes_read)
+
+        # Delete
+        self.pipe.delete(it.compute_key_name(21))()
+
+        # Get Again after Delete
+        user_fn = it.get(21)
+        u = user_fn()
+        self.assertEqual(UserTest(id=21, name='user-data:21', age=81), u)
+
+        self.assertEqual(2, it.hit_count)
+        self.assertEqual(2, it.fill_count)
+        self.assertEqual(0, it.cache_error_count)
+        self.assertEqual(2 * len(b'{"id": 21, "name": "user-data:21", "age": 81}'), it.bytes_read)
 
     def test_get_multi(self) -> None:
         it = self.it
@@ -257,6 +273,18 @@ class TestItemIntegration(unittest.TestCase):
         self.assertEqual(2, it.fill_count)
         self.assertEqual(0, it.cache_error_count)
         self.assertEqual(1, it.decode_error_count)
+
+    def test_reuse_error(self) -> None:
+        it = self.it
+
+        user_fn1 = it.get(21)
+        self.assertEqual(UserTest(id=21, name='user-data:21', age=81), user_fn1())
+
+        # Get with different key
+        user_fn2 = it.get(22)
+        self.assertEqual(UserTest(id=22, name='user-data:22', age=81), user_fn2())
+
+        self.assertEqual(UserTest(id=21, name='user-data:21', age=81), user_fn1())
 
 
 class TestItemRedisError(unittest.TestCase):

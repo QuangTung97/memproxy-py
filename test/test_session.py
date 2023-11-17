@@ -62,6 +62,14 @@ class TestSession(unittest.TestCase):
 
         self.assertEqual([21, 22, 31, 32], calls)
 
+    def test_lower_session__call_multiple_times_is_same(self) -> None:
+        sess = Session()
+        lower = sess.get_lower()
+
+        self.assertIs(lower, sess.get_lower())
+        self.assertIsNot(sess, sess.get_lower())
+        self.assertIsNot(lower, sess)
+
     def test_multi_levels(self) -> None:
         sess = Session()
         lower = sess.get_lower()

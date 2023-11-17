@@ -37,8 +37,11 @@ def new_json_codec(cls: Any) -> ItemCodec[T]:
 
 
 class _ItemConfig(Generic[T, K]):
-    __slots__ = ('pipe', 'key_fn', 'sess', 'codec', 'filler',
-                 'hit_count', 'fill_count', 'cache_error_count', 'decode_error_count')
+    __slots__ = (
+        'pipe', 'key_fn', 'sess', 'codec', 'filler',
+        'hit_count', 'fill_count', 'cache_error_count', 'decode_error_count',
+        'bytes_read'
+    )
 
     pipe: Pipeline
     key_fn: KeyNameFunc
@@ -50,6 +53,7 @@ class _ItemConfig(Generic[T, K]):
     fill_count: int
     cache_error_count: int
     decode_error_count: int
+    bytes_read: int
 
     def __init__(
             self, pipe: Pipeline,
@@ -66,10 +70,13 @@ class _ItemConfig(Generic[T, K]):
         self.fill_count = 0
         self.cache_error_count = 0
         self.decode_error_count = 0
+        self.bytes_read = 0
 
 
 class _ItemState(Generic[T, K]):
-    __slots__ = 'conf', 'key', 'key_str', 'lease_get_fn', 'cas', '_fill_fn', 'result'
+    __slots__ = (
+        'conf', 'key', 'key_str', 'lease_get_fn', 'cas', '_fill_fn', 'result',
+    )
 
     conf: _ItemConfig[T, K]
 
@@ -110,6 +117,7 @@ class _ItemState(Generic[T, K]):
         resp_error: Optional[str] = get_resp[3]
         if get_resp[0] == 1:
             self.conf.hit_count += 1
+            self.conf.bytes_read += len(get_resp[1])
             try:
                 self.result = self.conf.codec.decode(get_resp[1])
                 return
@@ -132,15 +140,7 @@ class _ItemState(Generic[T, K]):
             self.conf.sess.execute()
 
         r = self.result
-
-        if len(item_state_pool) < 4096:
-            item_state_pool.append(self)
-
         return r
-
-
-item_state_pool: List[Any] = []
-_P = item_state_pool
 
 
 class Item(Generic[T, K]):
@@ -158,10 +158,7 @@ class Item(Generic[T, K]):
 
     def get(self, key: K) -> Promise[T]:
         # do init item state
-        if len(_P) == 0:
-            state: _ItemState[T, K] = _ItemState()
-        else:
-            state = _P.pop()
+        state: _ItemState[T, K] = _ItemState()
 
         state.conf = self._conf
         state.key = key
@@ -174,22 +171,23 @@ class Item(Generic[T, K]):
         return state.result_func
 
     def get_multi(self, keys: List[K]) -> Callable[[], List[T]]:
+        conf = self._conf
+        pipe = conf.pipe
+        sess: Session = self._conf.sess
+
         states: List[_ItemState[T, K]] = []
 
         for key in keys:
             # do init item state
-            if len(_P) == 0:
-                state: _ItemState[T, K] = _ItemState()
-            else:
-                state = _P.pop()
+            state: _ItemState[T, K] = _ItemState()
 
-            state.conf = self._conf
+            state.conf = conf
             state.key = key
-            state.key_str = self._conf.key_fn(key)
-            state.lease_get_fn = self._conf.pipe.lease_get(state.key_str)
+            state.key_str = conf.key_fn(key)
+            state.lease_get_fn = pipe.lease_get(state.key_str)
             # end init item state
 
-            self._conf.sess.add_next_call(state)
+            sess.add_next_call(state)
 
             states.append(state)
 
@@ -219,6 +217,10 @@ class Item(Generic[T, K]):
     @property
     def decode_error_count(self) -> int:
         return self._conf.decode_error_count
+
+    @property
+    def bytes_read(self) -> int:
+        return self._conf.bytes_read
 
 
 class _MultiGetState(Generic[T, K]):
