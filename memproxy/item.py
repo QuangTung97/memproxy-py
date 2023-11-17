@@ -172,6 +172,7 @@ class Item(Generic[T, K]):
 
     def get_multi(self, keys: List[K]) -> Callable[[], List[T]]:
         conf = self._conf
+        key_fn = conf.key_fn
         pipe = conf.pipe
         sess: Session = self._conf.sess
 
@@ -183,7 +184,7 @@ class Item(Generic[T, K]):
 
             state.conf = conf
             state.key = key
-            state.key_str = conf.key_fn(key)
+            state.key_str = key_fn(key)
             state.lease_get_fn = pipe.lease_get(state.key_str)
             # end init item state
 
