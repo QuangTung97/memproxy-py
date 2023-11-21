@@ -4,7 +4,7 @@ import dataclasses
 import json
 import logging
 from dataclasses import dataclass
-from typing import Generic, TypeVar, Callable, Any, List, Optional, Dict
+from typing import Generic, TypeVar, Callable, Any, List, Optional, Dict, Type
 
 from .memproxy import LeaseGetResult
 from .memproxy import Promise, Pipeline, Session
@@ -29,7 +29,7 @@ class DataclassJSONEncoder(json.JSONEncoder):
         return super().default(o)
 
 
-def new_json_codec(cls: Any) -> ItemCodec[T]:
+def new_json_codec(cls: Type[T]) -> ItemCodec[T]:
     return ItemCodec(
         encode=lambda x: json.dumps(x, cls=DataclassJSONEncoder).encode(),
         decode=lambda d: cls(**json.loads(d)),
