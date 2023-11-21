@@ -381,13 +381,17 @@ class TestItemBenchmark(unittest.TestCase):
         if not os.getenv("ENABLE_PROFILE"):
             self.skipTest('Default not run')
 
-        with cProfile.Profile() as pr:
-            num_loops = 2000
-            for i in range(num_loops):
-                self.run_multi_get()
+        pr = cProfile.Profile()
+        pr.enable()
 
-            print("AVG DURATION:", (self.total_duration / num_loops).microseconds / 1000.0)
-            pr.dump_stats('item.stats')
+        num_loops = 2000
+        for i in range(num_loops):
+            self.run_multi_get()
+
+        print("AVG DURATION:", (self.total_duration / num_loops).microseconds / 1000.0)
+        pr.dump_stats('item.stats')
+
+        pr.disable()
 
 
 class TestMultiGetFiller(unittest.TestCase):
