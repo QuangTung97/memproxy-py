@@ -1,5 +1,5 @@
 cffi==1.15.1
-coverage==7.3.2
+coverage==7.2.7
 cryptography==41.0.5
 mypy==1.6.1
 mypy-extensions==1.0.0
