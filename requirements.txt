@@ -1,4 +1,4 @@
-cffi==1.16.0
+cffi==1.15.1
 coverage==7.3.2
 cryptography==41.0.5
 mypy==1.6.1
