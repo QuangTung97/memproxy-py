@@ -1,7 +1,8 @@
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, Callable, TypeVar, Optional, Tuple
+from typing import Callable, TypeVar, Optional, Tuple
+from typing_extensions import Protocol
 
 from .session import Session
 

@@ -1,5 +1,6 @@
 from abc import abstractmethod
-from typing import Protocol, Tuple, Optional, List
+from typing import Tuple, Optional, List
+from typing_extensions import Protocol
 
 
 class Stats(Protocol):
