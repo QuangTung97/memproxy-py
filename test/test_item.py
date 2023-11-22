@@ -372,7 +372,7 @@ class TestItemBenchmark(unittest.TestCase):
         self.run_multi_get()
         self.total_duration = datetime.timedelta(0)
 
-        num_loops = 10
+        num_loops = 100
         for i in range(num_loops):
             self.run_multi_get()
         print(f'AVG DURATION: {(self.total_duration / num_loops).microseconds / 1000.0}ms')
