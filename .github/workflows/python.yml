@@ -15,6 +15,10 @@ jobs:
         image: redis:6.0.8
         ports:
         - 6379:6379
+      redis2:
+        image: redis:6.0.8
+        ports:
+        - 6380:6379
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
