@@ -19,18 +19,25 @@ class UserTest:
         return self.user_id
 
 
+@dataclass(frozen=True)
+class RoleKey:
+    tenant: str
+    code: str
+
+
 @dataclass
 class RoleTest:
-    role_id: int
-    role_name: str
+    tenant: str
+    code: str
+    name: str
 
-    def get_role_id(self) -> int:
-        return self.role_id
+    def get_key(self) -> RoleKey:
+        return RoleKey(tenant=self.tenant, code=self.code)
 
 
 class TestProxyPropertyBased(unittest.TestCase):
     user_dict: Dict[int, UserTest]
-    role_dict: Dict[int, RoleTest]
+    role_dict: Dict[RoleKey, RoleTest]
 
     def setUp(self) -> None:
         self.user_dict = {}
@@ -87,7 +94,7 @@ class TestProxyPropertyBased(unittest.TestCase):
         )
 
     def new_error_user_item(self) -> Item[UserTest, int]:
-        def filler(user_id: int) -> Promise[UserTest]:
+        def filler(_user_id: int) -> Promise[UserTest]:
             raise ValueError('can not get user')
 
         return Item(
@@ -95,6 +102,30 @@ class TestProxyPropertyBased(unittest.TestCase):
             key_fn=lambda user_id: f'users:{user_id}',
             filler=filler,
             codec=new_json_codec(UserTest),
+        )
+
+    def get_roles(self, keys: List[RoleKey]) -> List[RoleTest]:
+        result = []
+        for k in keys:
+            if k in self.role_dict:
+                result.append(self.role_dict[k])
+        return result
+
+    def new_role_item(self) -> Item[RoleTest, RoleKey]:
+        def key_fn(k: RoleKey) -> str:
+            return f'roles:{k.tenant}:{k.code}'
+
+        filler = new_multi_get_filler(
+            fill_func=self.get_roles,
+            get_key_func=RoleTest.get_key,
+            default=RoleTest(tenant='', code='', name=''),
+        )
+
+        return Item(
+            pipe=self.pipe,
+            key_fn=key_fn,
+            filler=filler,
+            codec=new_json_codec(RoleTest),
         )
 
     def test_normal(self) -> None:
@@ -189,7 +220,6 @@ class TestProxyPropertyBased(unittest.TestCase):
 
         with self.assertRaises(ValueError) as ex:
             fn1()
-            fn2()
 
         self.assertEqual(('can not get user',), ex.exception.args)
 
@@ -218,3 +248,106 @@ class TestProxyPropertyBased(unittest.TestCase):
             b'val:{"user_id": 12, "username": "user 12", "counter": 82}',
             self.client1.get('users:12'),
         )
+
+    def test_get_both_user_and_role(self) -> None:
+        random.seed(113)
+
+        key1 = RoleKey(tenant='TENANT01', code='CODE01')
+        key2 = RoleKey(tenant='TENANT02', code='CODE02')
+
+        for i in range(100):
+            self.reset_pipe()
+            user_item = self.new_user_item()
+            role_item = self.new_role_item()
+
+            fn1 = user_item.get(11)
+            fn2 = user_item.get(12)
+            fn = role_item.get_multi([key1, key2])
+
+            self.assertEqual(UserTest(user_id=0, username='', counter=0), fn1())
+            self.assertEqual(UserTest(user_id=0, username='', counter=0), fn2())
+            self.assertEqual([
+                RoleTest(tenant='', code='', name=''),
+                RoleTest(tenant='', code='', name=''),
+            ], fn())
+
+        user_data = b'val:{"user_id": 0, "username": "", "counter": 0}'
+        self.assertEqual(user_data, self.client1.get('users:11'))
+        self.assertEqual(user_data, self.client2.get('users:11'))
+
+        user_data = b'val:{"tenant": "", "code": "", "name": ""}'
+        self.assertEqual(user_data, self.client1.get('roles:TENANT01:CODE01'))
+        self.assertEqual(user_data, self.client2.get('roles:TENANT01:CODE01'))
+
+        # Update And Delete
+        self.user_dict[11] = UserTest(user_id=11, username='user11', counter=51)
+        self.role_dict[key1] = RoleTest(
+            tenant='TENANT01', code='CODE01', name='Role Name 01',
+        )
+        self.role_dict[key2] = RoleTest(
+            tenant='TENANT02', code='CODE02', name='Role Name 02',
+        )
+
+        self.reset_pipe()
+
+        user_item = self.new_user_item()
+        role_item = self.new_role_item()
+
+        fn1 = self.pipe.delete(user_item.compute_key_name(11))
+        fn2 = self.pipe.delete(role_item.compute_key_name(key1))
+        fn3 = self.pipe.delete(role_item.compute_key_name(key2))
+
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), fn1())
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), fn2())
+        self.assertEqual(DeleteResponse(status=DeleteStatus.OK), fn3())
+
+        self.assertEqual(None, self.client1.get('roles:TENANT01:CODE01'))
+        self.assertEqual(None, self.client2.get('roles:TENANT01:CODE01'))
+
+        # Get Again
+        for i in range(100):
+            self.reset_pipe()
+            user_item = self.new_user_item()
+            role_item = self.new_role_item()
+
+            fn1 = user_item.get(11)
+            fn2 = user_item.get(12)
+            fn = role_item.get_multi([key1, key2])
+
+            self.assertEqual(UserTest(user_id=11, username='user11', counter=51), fn1())
+            self.assertEqual(UserTest(user_id=0, username='', counter=0), fn2())
+            self.assertEqual([
+                RoleTest(tenant='TENANT01', code='CODE01', name='Role Name 01'),
+                RoleTest(tenant='TENANT02', code='CODE02', name='Role Name 02'),
+            ], fn())
+
+    def test_get_role(self) -> None:
+        random.seed(113)
+
+        key1 = RoleKey(tenant='TENANT01', code='CODE01')
+        key2 = RoleKey(tenant='TENANT02', code='CODE02')
+        key3 = RoleKey(tenant='TENANT01', code='CODE02')
+
+        self.role_dict[key1] = RoleTest(
+            tenant='TENANT01', code='CODE01', name='Role Name 01',
+        )
+        self.role_dict[key2] = RoleTest(
+            tenant='TENANT02', code='CODE02', name='Role Name 02',
+        )
+        self.role_dict[key3] = RoleTest(
+            tenant='TENANT01', code='CODE02', name='Role Name 03',
+        )
+
+        for i in range(100):
+            self.reset_pipe()
+            role_item = self.new_role_item()
+
+            fn1 = role_item.get_multi([key1, key2])
+            fn2 = role_item.get(key3)
+
+            self.assertEqual([
+                RoleTest(tenant='TENANT01', code='CODE01', name='Role Name 01'),
+                RoleTest(tenant='TENANT02', code='CODE02', name='Role Name 02'),
+            ], fn1())
+
+            self.assertEqual(RoleTest(tenant='TENANT01', code='CODE02', name='Role Name 03'), fn2())
