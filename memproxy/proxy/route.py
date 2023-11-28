@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from typing import Tuple, Optional, List
+
 from typing_extensions import Protocol
 
 
@@ -25,6 +26,10 @@ class Selector(Protocol):
     def reset(self) -> None: pass
 
 
+# pylint: disable=too-few-public-methods
 class Route(Protocol):
+    """Object for selecting cache server for getting data."""
+
     @abstractmethod
-    def new_selector(self) -> Selector: pass
+    def new_selector(self) -> Selector:
+        """Create a new selector, best use on request scope."""

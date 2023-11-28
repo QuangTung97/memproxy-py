@@ -1,3 +1,6 @@
+"""
+Implementation of Route and Selector Protocol.
+"""
 from __future__ import annotations
 
 import random
@@ -8,6 +11,8 @@ from .route import Selector, Stats
 
 
 class ReplicatedSelector:
+    """Implement Selector Protocol that deals with cache replication."""
+
     __slots__ = '_conf', '_chosen_server', '_failed_servers'
 
     _conf: _RouteConfig
@@ -43,10 +48,10 @@ class ReplicatedSelector:
             ok = False
 
         if all(w < 1.0 for w in weights):
-            for i in range(len(weights)):
+            for i in range(len(weights)):  # pylint: disable=consider-using-enumerate
                 weights[i] = 1.0
 
-        recompute_weights_with_min_percent(weights, self._conf.min_percent)
+        _recompute_weights_with_min_percent(weights, self._conf.min_percent)
 
         # accumulate
         for i in range(1, len(weights)):
@@ -59,7 +64,7 @@ class ReplicatedSelector:
 
         chosen_weight = max_weight * pos
 
-        for i in range(len(weights)):
+        for i in range(len(weights)):  # pylint: disable=consider-using-enumerate
             if weights[i] > chosen_weight:
                 self._chosen_server = remaining[i]
                 return ok
@@ -68,6 +73,7 @@ class ReplicatedSelector:
         return ok
 
     def set_failed_server(self, server_id: int) -> None:
+        """Implement the Selector.set_failed_server()."""
         if server_id in self._failed_servers:
             return
         self._failed_servers.add(server_id)
@@ -75,6 +81,7 @@ class ReplicatedSelector:
         self.reset()
 
     def select_server(self, _: str) -> Tuple[int, bool]:
+        """Implement the Selector.select_server()."""
         if self._chosen_server:
             return self._chosen_server, True
 
@@ -83,6 +90,7 @@ class ReplicatedSelector:
         return self._chosen_server, ok
 
     def select_servers_for_delete(self, key: str) -> List[int]:
+        """Implement the Selector.select_servers_for_delete()."""
         self.select_server(key)
 
         result: List[int] = []
@@ -93,6 +101,7 @@ class ReplicatedSelector:
         return result
 
     def reset(self) -> None:
+        """Implement the Selector.reset()."""
         self._chosen_server = None
 
 
@@ -108,8 +117,11 @@ class _RouteConfig:
     min_percent: float
 
 
+# pylint: disable=too-few-public-methods
 class ReplicatedRoute:
-    __slots__ = '_conf'
+    """An implementation of Route Protocol that deals with replication."""
+
+    __slots__ = ('_conf',)
 
     _conf: _RouteConfig
 
@@ -129,10 +141,11 @@ class ReplicatedRoute:
         )
 
     def new_selector(self) -> Selector:
+        """Create a Selector for cache replication."""
         return ReplicatedSelector(conf=self._conf)
 
 
-def recompute_weights_with_min_percent(weights: List[float], min_percent: float) -> None:
+def _recompute_weights_with_min_percent(weights: List[float], min_percent: float) -> None:
     total = 0.0
     for w in weights:
         total += w
@@ -144,7 +157,7 @@ def recompute_weights_with_min_percent(weights: List[float], min_percent: float)
             k += 1
 
     new_weight = total / (100.0 - float(k) * min_percent)
-    for i in range(len(weights)):
+    for i in range(len(weights)):  # pylint: disable=consider-using-enumerate
         w = weights[i]
         if w < minimum:
             weights[i] = new_weight
