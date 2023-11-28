@@ -1,6 +1,6 @@
 # A Caching Library with Strong Consistency
 
-[![memproxy-py](https://github.com/QuangTung97/memproxy-py/actions/workflows/go.yml/badge.svg)](https://github.com/QuangTung97/memproxy-py/actions/workflows/python.yml)
+[![memproxy-py](https://github.com/QuangTung97/memproxy-py/actions/workflows/python.yml/badge.svg)](https://github.com/QuangTung97/memproxy-py/actions/workflows/python.yml)
 [![Coverage Status](https://coveralls.io/repos/github/QuangTung97/memproxy-py/badge.svg?branch=master)](https://coveralls.io/github/QuangTung97/memproxy-py?branch=master)
 
 ## Installation
