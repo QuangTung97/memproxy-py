@@ -1,3 +1,6 @@
+"""
+A Caching Library that Focuses on Consistency, Performance & High Availability.
+"""
 from .item import Item, new_json_codec, ItemCodec, new_multi_get_filler, FillerFunc
 from .memproxy import LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from .memproxy import LeaseGetResult

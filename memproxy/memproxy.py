@@ -1,7 +1,11 @@
+"""
+Basic Data Types of Memproxy.
+"""
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, TypeVar, Optional, Tuple
+
 from typing_extensions import Protocol
 
 from .session import Session
@@ -18,6 +22,7 @@ LeaseGetResponse = Tuple[int, bytes, int, Optional[str]]
 
 
 class LeaseSetStatus(Enum):
+    """Status when calling Pipeline.lease_set()."""
     OK = 1
     ERROR = 2
     NOT_FOUND = 3  # key not found
@@ -26,11 +31,13 @@ class LeaseSetStatus(Enum):
 
 @dataclass
 class LeaseSetResponse:
+    """Response Object when calling Pipeline.lease_set()."""
     status: LeaseSetStatus
     error: Optional[str] = None
 
 
 class DeleteStatus(Enum):
+    """Status when calling Pipeline.delete()."""
     OK = 1
     ERROR = 2
     NOT_FOUND = 3  # key not found
@@ -38,13 +45,17 @@ class DeleteStatus(Enum):
 
 @dataclass
 class DeleteResponse:
+    """Response Object when calling Pipeline.delete()."""
     status: DeleteStatus
     error: Optional[str] = None
 
 
 class LeaseGetResult(Protocol):
+    """Response Object when calling Pipeline.lease_get()."""
+
     @abstractmethod
-    def result(self) -> LeaseGetResponse: pass
+    def result(self) -> LeaseGetResponse:
+        """When call will return the lease get response object."""
 
 
 class LeaseGetResultFunc:
