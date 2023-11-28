@@ -95,13 +95,15 @@ class _PipelineConfig:
         return state.server_id
 
     def execute(self):
+        """execute pipeline stage."""
         self.pipe = None
         self.server_id = None
         self.sess.execute()
         self.selector.reset()
 
     def finish(self):
-        for server_id in self._pipelines:
+        """finish pipeline stage."""
+        for server_id in self._pipelines:  # pylint: disable=consider-using-dict-items
             self._pipelines[server_id].finish()
 
 
@@ -124,6 +126,8 @@ class _LeaseGetState:
             self.conf.add_set_server(self.key, self.server_id)
 
     def __call__(self) -> None:
+        """Get next func."""
+
         self.resp = self.fn.result()
 
         if self.resp[0] == 1:
@@ -149,6 +153,8 @@ class _LeaseGetState:
         self.conf.sess.add_next_call(next_again_func)
 
     def result(self) -> LeaseGetResponse:
+        """Get response func."""
+
         conf = self.conf
         if conf.sess.is_dirty:
             conf.execute()
@@ -177,9 +183,11 @@ class _LeaseSetState:
         self.fn = fn
 
     def next_func(self):
+        """Set next func."""
         self.resp = self.fn()
 
     def return_func(self) -> LeaseSetResponse:
+        """Set response func."""
         self.conf.execute()
         return self.resp
 
@@ -200,6 +208,7 @@ class _DeleteState:
         self.servers = servers
 
     def next_func(self) -> None:
+        """Delete next func."""
         resp = DeleteResponse(status=DeleteStatus.NOT_FOUND)
         for i, resp_fn in enumerate(self.fn_list):
             new_resp = resp_fn()
@@ -212,12 +221,15 @@ class _DeleteState:
         self.resp = resp
 
     def return_func(self) -> DeleteResponse:
+        """Delete return func."""
         self.conf.execute()
         return self.resp
 
 
 class ProxyPipeline:
-    __slots__ = '_conf'
+    """An Implementation of Pipeline."""
+
+    __slots__ = ('_conf',)
 
     _conf: _PipelineConfig
 
@@ -225,6 +237,8 @@ class ProxyPipeline:
         self._conf = _PipelineConfig(conf=conf, sess=sess)
 
     def lease_get(self, key: str) -> LeaseGetResult:
+        """Implement Pipeline.lease_get()."""
+
         if len(_P) == 0:
             state = _LeaseGetState()
         else:
@@ -253,6 +267,8 @@ class ProxyPipeline:
         return state
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
+        """Implement Pipeline.lease_set()."""
+
         server_id = self._conf.get_set_server(key)
         if not server_id:
             def lease_set_error() -> LeaseSetResponse:
@@ -270,6 +286,8 @@ class ProxyPipeline:
         return state.return_func
 
     def delete(self, key: str) -> Promise[DeleteResponse]:
+        """Implement Pipeline.delete()."""
+
         servers = self._conf.selector.select_servers_for_delete(key)
 
         fn_list: List[Promise[DeleteResponse]] = []
@@ -284,9 +302,11 @@ class ProxyPipeline:
         return state.return_func
 
     def lower_session(self) -> Session:
+        """get session with lower priority."""
         return self._conf.sess.get_lower()
 
     def finish(self) -> None:
+        """finish pending actions in the Pipeline."""
         self._conf.finish()
 
     def __enter__(self):
@@ -296,8 +316,11 @@ class ProxyPipeline:
         self.finish()
 
 
+# pylint: disable=too-few-public-methods
 class ProxyCacheClient:
-    __slots__ = '_conf'
+    """An implementation of CacheClient supporting cache replication."""
+
+    __slots__ = ('_conf',)
 
     _conf: _ClientConfig
 
@@ -318,4 +341,8 @@ class ProxyCacheClient:
         )
 
     def pipeline(self, sess: Optional[Session] = None) -> Pipeline:
+        """
+        :param sess: optional session object, if None will create a new session
+        :return: Pipeline object that handles cache replication
+        """
         return ProxyPipeline(conf=self._conf, sess=sess)

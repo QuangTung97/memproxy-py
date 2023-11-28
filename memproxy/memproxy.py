@@ -50,6 +50,7 @@ class DeleteResponse:
     error: Optional[str] = None
 
 
+# pylint: disable=too-few-public-methods
 class LeaseGetResult(Protocol):
     """Response Object when calling Pipeline.lease_get()."""
 
@@ -58,7 +59,10 @@ class LeaseGetResult(Protocol):
         """When call will return the lease get response object."""
 
 
+# pylint: disable=too-few-public-methods
 class LeaseGetResultFunc:
+    """Mostly for testing purpose."""
+
     _fn: Promise[LeaseGetResponse]
 
     def __init__(self, fn: Promise[LeaseGetResponse]):
@@ -69,6 +73,8 @@ class LeaseGetResultFunc:
 
 
 class Pipeline(Protocol):
+    """A Cache Pipeline."""
+
     @abstractmethod
     def lease_get(self, key: str) -> LeaseGetResult: pass
 
