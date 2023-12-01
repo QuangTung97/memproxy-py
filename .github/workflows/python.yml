@@ -35,6 +35,8 @@ jobs:
       run: make lint
     - name: Unit & Integration Tests
       run: make test
+    - name: Check CPU
+      run: lscpu
     - name: Benchmark
       run: make bench
     - name: Coveralls
