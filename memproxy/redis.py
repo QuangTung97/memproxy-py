@@ -186,14 +186,9 @@ class _RedisGetResult:
             self.pipe.execute(state)
 
         if state.redis_error is not None:
-            release_get_result(self)
             return 3, b'', 0, f'Redis Get: {state.redis_error}'
 
         get_resp = state.get_result[self.index]
-
-        # release to pool
-        if len(_P) < 4096:
-            _P.append(self)
 
         if get_resp.startswith(b'val:'):
             return 1, get_resp[len(b'val:'):], 0, None
@@ -209,19 +204,10 @@ class _RedisGetResult:
             return 1, get_resp, 0, None
 
 
-get_result_pool: List[_RedisGetResult] = []
-_P = get_result_pool
-
-
-def release_get_result(r: _RedisGetResult):
-    if len(_P) >= 4096:
-        return
-    _P.append(r)
-
-
 class RedisPipeline:
     __slots__ = ('client', 'get_script', 'set_script', '_sess',
-                 '_min_ttl', '_max_ttl', 'max_keys_per_batch', '_state')
+                 '_min_ttl', '_max_ttl', 'max_keys_per_batch',
+                 '_state')
 
     client: redis.Redis
     get_script: Any
@@ -275,12 +261,7 @@ class RedisPipeline:
         index = len(state.keys)
         state.keys.append(key)
 
-        # do init get result
-        if len(_P) == 0:
-            result = _RedisGetResult()
-        else:
-            result = _P.pop()
-
+        result = _RedisGetResult()
         result.pipe = self
         result.state = state
         result.index = index
