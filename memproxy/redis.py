@@ -187,9 +187,16 @@ class _RedisGetResult:
             self.pipe.execute(state)
 
         if state.redis_error is not None:
+            # release to pool
+            if len(_P) < 4096:
+                _P.append(self)
             return 3, b'', 0, f'Redis Get: {state.redis_error}'
 
         get_resp = state.get_result[self.index]
+
+        # release to pool
+        if len(_P) < 4096:
+            _P.append(self)
 
         if get_resp.startswith(b'val:'):
             return 1, get_resp[len(b'val:'):], 0, None
@@ -203,6 +210,9 @@ class _RedisGetResult:
             return 2, b'', cas, None
         else:
             return 1, get_resp, 0, None
+
+
+_P: List[_RedisGetResult] = []
 
 
 class RedisPipeline:
@@ -264,7 +274,12 @@ class RedisPipeline:
         index = len(state.keys)
         state.keys.append(key)
 
-        result = _RedisGetResult()
+        # do init get result
+        try:
+            result = _P.pop()
+        except IndexError:
+            result = _RedisGetResult()
+
         result.pipe = self
         result.state = state
         result.index = index
