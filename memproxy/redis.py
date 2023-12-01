@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import time
 from dataclasses import dataclass
 from typing import List, Optional, Union, Any
 
@@ -207,7 +208,7 @@ class _RedisGetResult:
 class RedisPipeline:
     __slots__ = ('client', 'get_script', 'set_script', '_sess',
                  '_min_ttl', '_max_ttl', 'max_keys_per_batch',
-                 '_state')
+                 '_state', '_rand')
 
     client: redis.Redis
     get_script: Any
@@ -221,6 +222,7 @@ class RedisPipeline:
     max_keys_per_batch: int
 
     _state: Optional[RedisPipelineState]
+    _rand: Optional[random.Random]
 
     def __init__(
             self, r: redis.Redis,
@@ -241,6 +243,7 @@ class RedisPipeline:
         self.max_keys_per_batch = max_keys_per_batch
 
         self._state = None
+        self._rand = None
 
     def _get_state(self) -> RedisPipelineState:
         if self._state is None:
@@ -272,7 +275,10 @@ class RedisPipeline:
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
         state = self._get_state()
 
-        ttl = random.randrange(self._min_ttl, self._max_ttl + 1)
+        if self._rand is None:
+            self._rand = random.Random(time.time_ns())
+
+        ttl = self._rand.randrange(self._min_ttl, self._max_ttl + 1)
 
         index = state.add_set_op(key=key, cas=cas, val=data, ttl=ttl)
 

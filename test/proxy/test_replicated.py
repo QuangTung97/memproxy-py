@@ -17,8 +17,11 @@ class TestReplicatedSelector(unittest.TestCase):
         self.rand_calls = []
         self.rand_val = 0
 
-        self.route: Route = ReplicatedRoute(self.servers, self.stats, rand=self.rand_func)
+        self.route: Route = ReplicatedRoute(self.servers, self.stats, rand=self.rand_factory)
         self.selector = self.route.new_selector()
+
+    def rand_factory(self):
+        return self.rand_func
 
     def rand_func(self, n: int) -> int:
         self.rand_calls.append(n)
