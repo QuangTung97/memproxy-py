@@ -113,7 +113,7 @@ class TestProxyItemBenchmark(unittest.TestCase):
 
         duration = time.perf_counter_ns() - start
 
-        print(f'\nAVG PROXY ITEM DURATION: {(duration / num_loops) / 1000.0}us')
+        print(f'\nAVG PROXY ITEM DURATION: {(duration / num_loops) / 1000.0}us, Loops: {num_loops}')
 
 
 NUM_KEYS = 100
@@ -169,7 +169,7 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
 
     def test_run_benchmark_proxy(self) -> None:
         # 405.9151384 us => 382.4579183us => 423.74484309999997us => 782.8339115us
-        num_loops = get_num_loops(10000)
+        num_loops = get_num_loops(200)
 
         start = time.perf_counter_ns()
 
