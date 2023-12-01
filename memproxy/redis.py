@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import time
 from dataclasses import dataclass
 from typing import List, Optional, Union, Any
 
@@ -186,14 +187,9 @@ class _RedisGetResult:
             self.pipe.execute(state)
 
         if state.redis_error is not None:
-            release_get_result(self)
             return 3, b'', 0, f'Redis Get: {state.redis_error}'
 
         get_resp = state.get_result[self.index]
-
-        # release to pool
-        if len(_P) < 4096:
-            _P.append(self)
 
         if get_resp.startswith(b'val:'):
             return 1, get_resp[len(b'val:'):], 0, None
@@ -209,19 +205,10 @@ class _RedisGetResult:
             return 1, get_resp, 0, None
 
 
-get_result_pool: List[_RedisGetResult] = []
-_P = get_result_pool
-
-
-def release_get_result(r: _RedisGetResult):
-    if len(_P) >= 4096:
-        return
-    _P.append(r)
-
-
 class RedisPipeline:
     __slots__ = ('client', 'get_script', 'set_script', '_sess',
-                 '_min_ttl', '_max_ttl', 'max_keys_per_batch', '_state')
+                 '_min_ttl', '_max_ttl', 'max_keys_per_batch',
+                 '_state', '_rand')
 
     client: redis.Redis
     get_script: Any
@@ -235,6 +222,7 @@ class RedisPipeline:
     max_keys_per_batch: int
 
     _state: Optional[RedisPipelineState]
+    _rand: Optional[random.Random]
 
     def __init__(
             self, r: redis.Redis,
@@ -255,6 +243,7 @@ class RedisPipeline:
         self.max_keys_per_batch = max_keys_per_batch
 
         self._state = None
+        self._rand = None
 
     def _get_state(self) -> RedisPipelineState:
         if self._state is None:
@@ -275,12 +264,7 @@ class RedisPipeline:
         index = len(state.keys)
         state.keys.append(key)
 
-        # do init get result
-        if len(_P) == 0:
-            result = _RedisGetResult()
-        else:
-            result = _P.pop()
-
+        result = _RedisGetResult()
         result.pipe = self
         result.state = state
         result.index = index
@@ -291,7 +275,10 @@ class RedisPipeline:
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
         state = self._get_state()
 
-        ttl = random.randrange(self._min_ttl, self._max_ttl + 1)
+        if self._rand is None:
+            self._rand = random.Random(time.time_ns())
+
+        ttl = self._rand.randrange(self._min_ttl, self._max_ttl + 1)
 
         index = state.add_set_op(key=key, cas=cas, val=data, ttl=ttl)
 

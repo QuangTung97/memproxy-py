@@ -59,7 +59,12 @@ class TestProxyPropertyBased(unittest.TestCase):
 
         stats = ServerStats(clients=clients)
 
-        route = ReplicatedRoute(server_ids=server_ids, stats=stats)
+        r = random.Random(113)
+
+        def random_factory():
+            return r.randrange
+
+        route = ReplicatedRoute(server_ids=server_ids, stats=stats, rand=random_factory)
 
         def new_redis_client(server_id: int):
             return RedisClient(r=clients[server_id])
@@ -129,8 +134,6 @@ class TestProxyPropertyBased(unittest.TestCase):
         )
 
     def test_normal(self) -> None:
-        random.seed(113)
-
         for i in range(100):
             self.reset_pipe()
             user_item = self.new_user_item()
@@ -250,8 +253,6 @@ class TestProxyPropertyBased(unittest.TestCase):
         )
 
     def test_get_both_user_and_role(self) -> None:
-        random.seed(113)
-
         key1 = RoleKey(tenant='TENANT01', code='CODE01')
         key2 = RoleKey(tenant='TENANT02', code='CODE02')
 
@@ -322,8 +323,6 @@ class TestProxyPropertyBased(unittest.TestCase):
             ], fn())
 
     def test_get_role(self) -> None:
-        random.seed(113)
-
         key1 = RoleKey(tenant='TENANT01', code='CODE01')
         key2 = RoleKey(tenant='TENANT02', code='CODE02')
         key3 = RoleKey(tenant='TENANT01', code='CODE02')

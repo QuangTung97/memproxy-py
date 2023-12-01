@@ -154,15 +154,7 @@ class _LeaseGetState:
             conf.execute()
 
         resp = self.resp
-
-        if len(_P) < 4096:
-            _P.append(self)
-
         return resp
-
-
-get_state_pool: List[_LeaseGetState] = []
-_P = get_state_pool
 
 
 class _LeaseSetState:
@@ -225,10 +217,7 @@ class ProxyPipeline:
         self._conf = _PipelineConfig(conf=conf, sess=sess)
 
     def lease_get(self, key: str) -> LeaseGetResult:
-        if len(_P) == 0:
-            state = _LeaseGetState()
-        else:
-            state = _P.pop()
+        state = _LeaseGetState()
 
         # do init get state
         conf = self._conf

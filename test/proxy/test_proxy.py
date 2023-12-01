@@ -36,10 +36,13 @@ class TestProxy(unittest.TestCase):
             23: 100,
         }
 
-        self.route = ReplicatedRoute(self.server_ids, self.stats, rand=self.rand_func)
+        self.route = ReplicatedRoute(self.server_ids, self.stats, rand=self.rand_factory)
         self.client: CacheClient = ProxyCacheClient(self.server_ids, self.new_func, self.route)
 
         self.pipe = self.client.pipeline()
+
+    def rand_factory(self):
+        return self.rand_func
 
     def rand_func(self, _: int):
         return self.rand_val

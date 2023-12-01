@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import time
 from dataclasses import dataclass
 from typing import Optional, List, Tuple, Callable, Set
 
@@ -8,17 +9,19 @@ from .route import Selector, Stats
 
 
 class ReplicatedSelector:
-    __slots__ = '_conf', '_chosen_server', '_failed_servers'
+    __slots__ = '_conf', '_chosen_server', '_failed_servers', '_rand_func'
 
     _conf: _RouteConfig
 
     _chosen_server: Optional[int]
     _failed_servers: Set[int]
+    _rand_func: RandFunc
 
     def __init__(self, conf: _RouteConfig):
         self._conf = conf
         self._chosen_server = None
         self._failed_servers = set()
+        self._rand_func = conf.rand()
 
     def _compute_chosen_server(self) -> bool:
         remaining: List[int] = []
@@ -54,7 +57,7 @@ class ReplicatedSelector:
 
         max_weight = weights[-1]
 
-        val = self._conf.rand(RAND_MAX)
+        val = self._rand_func(RAND_MAX)
         pos = float(val) / float(RAND_MAX)
 
         chosen_weight = max_weight * pos
@@ -98,13 +101,19 @@ class ReplicatedSelector:
 
 RAND_MAX = 1_000_000
 RandFunc = Callable[[int], int]  # (n) -> int, random from 0 -> n - 1
+RandomFactory = Callable[[], RandFunc]
+
+
+def default_rand_func_factory() -> RandFunc:
+    r = random.Random(time.time_ns())
+    return r.randrange
 
 
 @dataclass
 class _RouteConfig:
     servers: List[int]
     stats: Stats
-    rand: RandFunc
+    rand: RandomFactory
     min_percent: float
 
 
@@ -115,7 +124,7 @@ class ReplicatedRoute:
 
     def __init__(
             self, server_ids: List[int], stats: Stats,
-            rand: RandFunc = random.randrange,
+            rand: RandomFactory = default_rand_func_factory,
             min_percent: float = 1.0,
     ):
         if len(server_ids) == 0:
