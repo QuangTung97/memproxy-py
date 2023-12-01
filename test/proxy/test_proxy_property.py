@@ -59,8 +59,9 @@ class TestProxyPropertyBased(unittest.TestCase):
 
         stats = ServerStats(clients=clients)
 
+        r = random.Random(113)
+
         def random_factory():
-            r = random.Random(113)
             return r.randrange
 
         route = ReplicatedRoute(server_ids=server_ids, stats=stats, rand=random_factory)
