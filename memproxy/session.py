@@ -25,6 +25,7 @@ class Session:
         self.is_dirty = False
 
     def add_next_call(self, fn: NextCallFunc) -> None:
+        """Add delay call to the list of defer funcs."""
         self.next_calls.append(fn)
 
         if self.is_dirty:
@@ -33,9 +34,13 @@ class Session:
         s: Optional[Session] = self
         while s and not s.is_dirty:
             s.is_dirty = True
-            s = s._lower
+            s = s._lower  # pylint: disable=protected-access
 
     def execute(self) -> None:
+        """
+        Execute defer funcs.
+        Those defer functions can itself call the add_next_call() inside of them.
+        """
         if not self.is_dirty:
             return
 
@@ -52,7 +57,8 @@ class Session:
                 fn()
 
     def get_lower(self) -> Session:
+        """Returns a lower priority session."""
         if self._lower is None:
             self._lower = Session()
-            self._lower._higher = self
+            self._lower._higher = self  # pylint: disable=protected-access
         return self._lower
