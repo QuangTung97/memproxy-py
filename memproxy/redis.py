@@ -1,3 +1,6 @@
+"""
+Implementation of CacheClient using redis.
+"""
 from __future__ import annotations
 
 import random
@@ -62,13 +65,20 @@ return result
 
 @dataclass
 class SetInput:
+    """Params for setting keys to redis."""
     key: str
     cas: int
     val: bytes
     ttl: int
 
 
-class RedisPipelineState:
+class RedisPipelineState:  # pylint: disable=too-many-instance-attributes
+    """
+    State between pipeline stages.
+    A pipeline stage is a duration start with collecting operations, e.g. lease get/set,
+    then finish by executing it.
+    """
+
     __slots__ = ('_pipe', 'completed', 'keys', 'get_result', '_set_inputs',
                  'set_result', '_delete_keys', 'delete_result', 'redis_error')
 
@@ -97,19 +107,22 @@ class RedisPipelineState:
         self.redis_error = None
 
     def add_set_op(self, key: str, cas: int, val: bytes, ttl: int) -> int:
+        """Add set key operation."""
         index = len(self._set_inputs)
         self._set_inputs.append(SetInput(key=key, cas=cas, val=val, ttl=ttl))
         return index
 
     def add_delete_op(self, key: str) -> int:
+        """Add delete operation."""
         index = len(self._delete_keys)
         self._delete_keys.append(key)
         return index
 
     def execute(self) -> None:
+        """Execute collected operations."""
         try:
             self._execute_in_try()
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             self.redis_error = str(e)
 
     def _execute_in_try(self) -> None:
@@ -119,7 +132,7 @@ class RedisPipelineState:
         if len(self._set_inputs) > 0:
             self._execute_lease_set()
 
-        if len(self._delete_keys):
+        if len(self._delete_keys) > 0:
             with self._pipe.client.pipeline(transaction=False) as pipe:
                 for key in self._delete_keys:
                     pipe.delete(key)
@@ -174,7 +187,7 @@ class RedisPipelineState:
         return self._pipe.set_script(keys=keys, args=args, client=client)
 
 
-class _RedisGetResult:
+class _RedisGetResult:  # pylint: disable=too-few-public-methods
     __slots__ = 'pipe', 'state', 'index'
 
     pipe: RedisPipeline
@@ -182,9 +195,10 @@ class _RedisGetResult:
     index: int
 
     def result(self) -> LeaseGetResponse:
+        """Implementation of LeaseGetResult protocol."""
         state = self.state
         if not state.completed:
-            self.pipe.execute(state)
+            self.pipe.execute(state)  # pylint: disable=no-member
 
         if state.redis_error is not None:
             return 3, b'', 0, f'Redis Get: {state.redis_error}'
@@ -201,11 +215,13 @@ class _RedisGetResult:
 
             cas = int(num_str)
             return 2, b'', cas, None
-        else:
-            return 1, get_resp, 0, None
+
+        return 1, get_resp, 0, None
 
 
-class RedisPipeline:
+class RedisPipeline:  # pylint: disable=too-many-instance-attributes
+    """A implementation of Pipeline using redis."""
+
     __slots__ = ('client', 'get_script', 'set_script', '_sess',
                  '_min_ttl', '_max_ttl', 'max_keys_per_batch',
                  '_state', '_rand')
@@ -224,7 +240,7 @@ class RedisPipeline:
     _state: Optional[RedisPipelineState]
     _rand: Optional[random.Random]
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
             self, r: redis.Redis,
             get_script: Any, set_script: Any,
             min_ttl: int, max_ttl: int,
@@ -251,11 +267,13 @@ class RedisPipeline:
         return self._state
 
     def execute(self, state: RedisPipelineState):
+        """Executing the pipeline state."""
         if not state.completed:
             state.execute()
             self._state = None
 
     def lease_get(self, key: str) -> LeaseGetResult:
+        """Lease get from cache."""
         if self._state is None:
             self._state = RedisPipelineState(self)
 
@@ -273,6 +291,7 @@ class RedisPipeline:
         return result
 
     def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
+        """Set data into cache if cas number is matched."""
         state = self._get_state()
 
         if self._rand is None:
@@ -305,6 +324,7 @@ class RedisPipeline:
         return lease_set_fn
 
     def delete(self, key: str) -> Promise[DeleteResponse]:
+        """Delete cache key."""
         state = self._get_state()
         index = state.add_delete_op(key)
 
@@ -323,20 +343,25 @@ class RedisPipeline:
         return delete_fn
 
     def lower_session(self) -> Session:
+        """Returns the lower priority session"""
         return self._sess
 
     def finish(self) -> None:
+        """Do clean up."""
         if self._state is not None:
             self.execute(self._state)
 
     def __enter__(self):
+        """Do clean up using with keyword."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Do clean up using with keyword."""
         self.finish()
 
 
-class RedisClient:
+class RedisClient:  # pylint: disable=too-few-public-methods
+    """An implementation of Cache Client using redis."""
     __slots__ = ('_client', '_get_script', '_set_script',
                  '_min_ttl', '_max_ttl', '_max_keys_per_batch')
     _client: redis.Redis
@@ -359,6 +384,7 @@ class RedisClient:
         self._max_keys_per_batch = max_keys_per_batch
 
     def pipeline(self, sess: Optional[Session] = None) -> Pipeline:
+        """Creates a new pipeline."""
         return RedisPipeline(
             r=self._client,
             get_script=self._get_script,

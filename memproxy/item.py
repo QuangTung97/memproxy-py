@@ -1,3 +1,7 @@
+"""
+Main package for accessing cache.
+Clients should mostly use this package for accessing cached data.
+"""
 from __future__ import annotations
 
 import dataclasses
@@ -18,25 +22,30 @@ FillerFunc = Callable[[K], Promise[T]]  # K -> Promise[T]
 
 @dataclass
 class ItemCodec(Generic[T]):
+    """Item encoder & decoder for data in cache."""
     encode: Callable[[T], bytes]
     decode: Callable[[bytes], T]
 
 
 class DataclassJSONEncoder(json.JSONEncoder):
+    """Custom JSON Encoder for dataclasses."""
+
     def default(self, o):
+        """implement default function of json.Encoder."""
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         return super().default(o)
 
 
 def new_json_codec(cls: Type[T]) -> ItemCodec[T]:
+    """Creates a simple ItemCodec for dataclasses."""
     return ItemCodec(
         encode=lambda x: json.dumps(x, cls=DataclassJSONEncoder).encode(),
         decode=lambda d: cls(**json.loads(d)),
     )
 
 
-class _ItemConfig(Generic[T, K]):
+class _ItemConfig(Generic[T, K]):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     __slots__ = (
         'pipe', 'key_fn', 'sess', 'codec', 'filler',
         'hit_count', 'fill_count', 'cache_error_count', 'decode_error_count',
@@ -121,7 +130,7 @@ class _ItemState(Generic[T, K]):
             try:
                 self.result = self.conf.codec.decode(get_resp[1])
                 return
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-exception-caught
                 self.conf.decode_error_count += 1
                 resp_error = f'Decode error. {str(e)}'
 
@@ -136,6 +145,7 @@ class _ItemState(Generic[T, K]):
         self._handle_filling()
 
     def result_func(self) -> T:
+        """Execute the session and map the result back to clients."""
         if self.conf.sess.is_dirty:
             self.conf.sess.execute()
 
@@ -144,7 +154,12 @@ class _ItemState(Generic[T, K]):
 
 
 class Item(Generic[T, K]):
-    __slots__ = '_conf'
+    """
+    Item object is for accessing cache keys.
+    Cache key will be filled for DB if cache miss, with intelligent batching.
+    Also providing stats for better monitoring.
+    """
+    __slots__ = ('_conf',)
 
     _conf: _ItemConfig[T, K]
 
@@ -157,6 +172,7 @@ class Item(Generic[T, K]):
         self._conf = _ItemConfig(pipe=pipe, key_fn=key_fn, filler=filler, codec=codec)
 
     def get(self, key: K) -> Promise[T]:
+        """Get data from cache key and fill from DB if it missed."""
         # do init item state
         state: _ItemState[T, K] = _ItemState()
 
@@ -171,6 +187,7 @@ class Item(Generic[T, K]):
         return state.result_func
 
     def get_multi(self, keys: List[K]) -> Callable[[], List[T]]:
+        """Get multi cache keys at once. Equivalent to calling get() multiple times."""
         conf = self._conf
         key_fn = conf.key_fn
         pipe = conf.pipe
@@ -201,30 +218,36 @@ class Item(Generic[T, K]):
         return result_func
 
     def compute_key_name(self, key: K) -> str:
+        """Calling the key name function, mostly for testing purpose."""
         return self._conf.key_fn(key)
 
     @property
     def hit_count(self) -> int:
+        """Number of times cache get hit."""
         return self._conf.hit_count
 
     @property
     def fill_count(self) -> int:
+        """Number of times cache get missed and need to fill from DB."""
         return self._conf.fill_count
 
     @property
     def cache_error_count(self) -> int:
+        """Number of times cache servers return errors"""
         return self._conf.cache_error_count
 
     @property
     def decode_error_count(self) -> int:
+        """Number of times decode function raises errors."""
         return self._conf.decode_error_count
 
     @property
     def bytes_read(self) -> int:
+        """Number of bytes read from the cache servers."""
         return self._conf.bytes_read
 
 
-class _MultiGetState(Generic[T, K]):
+class _MultiGetState(Generic[T, K]):  # pylint: disable=too-few-public-methods
     __slots__ = ('keys', 'result', 'completed')
 
     keys: List[K]
@@ -237,6 +260,7 @@ class _MultiGetState(Generic[T, K]):
         self.result = {}
 
     def add_key(self, key: K):
+        """Add key to the state of multi-get filler."""
         self.keys.append(key)
 
 
@@ -244,7 +268,7 @@ MultiGetFillFunc = Callable[[List[K]], List[T]]  # [K] -> [T]
 GetKeyFunc = Callable[[T], K]  # T -> K
 
 
-class _MultiGetFunc(Generic[T, K]):
+class _MultiGetFunc(Generic[T, K]):  # pylint: disable=too-few-public-methods
     __slots__ = '_state', '_fill_func', '_get_key_func', '_default'
 
     _state: Optional[_MultiGetState[T, K]]
@@ -269,6 +293,7 @@ class _MultiGetFunc(Generic[T, K]):
         return self._state
 
     def result_func(self, key: K) -> Promise[T]:
+        """Function that implement the filler function signature."""
         state = self._get_state()
         state.add_key(key)
 
@@ -294,5 +319,6 @@ def new_multi_get_filler(
         get_key_func: Callable[[T], K],  # T -> K
         default: Callable[[], T],  # () -> T
 ) -> Callable[[K], Promise[T]]:  # K -> () -> T
+    """Helper function for creating Item object with a multi get filler."""
     fn = _MultiGetFunc(fill_func=fill_func, key_func=get_key_func, default=default)
     return fn.result_func

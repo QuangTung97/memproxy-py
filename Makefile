@@ -3,6 +3,7 @@
 all: lint test
 
 lint:
+	pylint memproxy
 	mypy .
 
 test:

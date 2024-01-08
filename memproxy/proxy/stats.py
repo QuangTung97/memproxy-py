@@ -1,3 +1,7 @@
+"""
+Implementation of ServerStats.
+Get RAM usage of cache servers to do load-balancing.
+"""
 import logging
 import random
 import threading
@@ -28,27 +32,30 @@ class _ServerState:
         self.mem = 0
 
     def compute_next_wake_up(self, sleep_min: int, sleep_max: int):
+        """next wake time point for sleeping."""
         rand = random.Random(time.time_ns())
         d = rand.randint(sleep_min, sleep_max)
         self.next_wake_up = time.time() + float(d)
 
     def get_mem_usage(self, server_id, mem_logger: MemLogger):
+        """get RAM usage of cache servers."""
         try:
             usage = self.client.info('memory').get('used_memory')
             if usage:
                 self.mem = usage
                 mem_logger(server_id, usage)
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-exception-caught
             self.mem = None
             self.error = str(e)
-            logging.error(f'Server Stats error. {str(e)}')
+            logging.error('Server Stats error. %s', str(e))
 
 
 def _empty_logger(_server_id: int, _mem: float):
     pass
 
 
-class ServerStats:
+class ServerStats:  # pylint: disable=too-many-instance-attributes
+    """ServerStats periodic get RAM of cache servers for load-balancing."""
     _servers: List[int]
     _states: Dict[int, _ServerState]
 
@@ -79,7 +86,7 @@ class ServerStats:
 
         self._finished = threading.Semaphore(value=0)
 
-        servers = [server_id for server_id in clients]
+        servers = list(clients)
         servers.sort()
         self._servers = servers
 
@@ -152,22 +159,25 @@ class ServerStats:
                     self._finished.release()
                     return
 
-                notify_list = [server_id for server_id in self._notified]
+                notify_list = list(self._notified)
                 self._notified.clear()
 
             self._notify_servers(timeout_servers, True)
             self._notify_servers(notify_list, False)
 
     def get_mem_usage(self, server_id: int) -> Optional[float]:
+        """Get RAM usage in bytes."""
         return self._states[server_id].mem
 
     def notify_server_failed(self, server_id: int) -> None:
+        """Notify a server id has been returning errors."""
         with self._mut:
             self._notified.add(server_id)
             self._cond.notify()
 
     def shutdown(self):
+        """Shutdown the server stats thread and wait for finishing."""
         with self._mut:
             self._closed = True
             self._cond.notify()
-        self._finished.acquire()
+        self._finished.acquire()  # pylint: disable=consider-using-with

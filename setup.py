@@ -33,7 +33,7 @@ setuptools.setup(
         'memproxy.proxy': ['py.typed'],
     },
     packages=['memproxy', 'memproxy.proxy'],
-    python_requires=">=3.7",
+    python_requires=">=3.8",
     setup_requires=['wheel'],
     install_requires=[
         'redis>=3.2.0',
