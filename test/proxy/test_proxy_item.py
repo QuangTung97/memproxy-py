@@ -1,3 +1,4 @@
+import os
 import time
 import unittest
 from dataclasses import dataclass
@@ -42,6 +43,14 @@ user_codec = ItemCodec(
     encode=UserTest.encode,
     decode=decode_user,
 )
+
+
+def get_num_loops(base: int) -> int:
+    num_loops = base
+    env = os.getenv("LOOP_MUL")
+    if env:
+        num_loops *= int(env)
+    return num_loops
 
 
 class TestProxyItemBenchmark(unittest.TestCase):
@@ -97,13 +106,14 @@ class TestProxyItemBenchmark(unittest.TestCase):
 
         start = time.perf_counter_ns()
 
-        num_loops = 100
+        num_loops = get_num_loops(100)
+
         for i in range(num_loops):
             self.run_multi_get()
 
         duration = time.perf_counter_ns() - start
 
-        print(f'AVG PROXY ITEM DURATION: {(duration / num_loops) / 1000.0}us')
+        print(f'\nAVG PROXY ITEM DURATION: {(duration / num_loops) / 1000.0}us, Loops: {num_loops}')
 
 
 NUM_KEYS = 100
@@ -158,7 +168,8 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
         _users = fn()
 
     def test_run_benchmark_proxy(self) -> None:
-        num_loops = 200  # 405.9151384 us => 382.4579183us => 423.74484309999997us
+        # 405.9151384 us => 382.4579183us => 423.74484309999997us => 782.8339115us
+        num_loops = get_num_loops(200)
 
         start = time.perf_counter_ns()
 
@@ -166,10 +177,10 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
             self.run_multi_get()
 
         duration = time.perf_counter_ns() - start
-        print(f'[MEMORY ONLY] AVG PROXY ITEM DURATION: {duration / 1000 / num_loops}us')
+        print(f'\n[MEMORY ONLY] AVG PROXY ITEM DURATION: {duration / 1000 / num_loops}us, Loops: {num_loops}')
 
     def test_run_do_init_only(self) -> None:
-        num_loops = 40000
+        num_loops = get_num_loops(4000)
 
         start = time.perf_counter_ns()
 
@@ -188,7 +199,7 @@ class TestProxyItemBenchmarkInMemory(unittest.TestCase):
             count += len(k)
 
         duration = time.perf_counter_ns() - start
-        print(f'[MEMORY ONLY] DO INIT ONLY AVG DURATION: {duration / num_loops / 1000}us')
+        print(f'\n[MEMORY ONLY] DO INIT ONLY AVG DURATION: {duration / num_loops / 1000}us, Loops: {num_loops}')
 
 
 class TestProxyItem(unittest.TestCase):

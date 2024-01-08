@@ -1,4 +1,4 @@
-.PHONY: all lint test coverage html item-profile build-dist upload install-tools requirements
+.PHONY: all lint test coverage html item-profile build-dist upload install-tools requirements bench
 
 all: lint test
 
@@ -31,3 +31,6 @@ install-tools:
 
 requirements:
 	pip3 freeze >requirements.txt
+
+bench:
+	LOOP_MUL=50 python -m unittest

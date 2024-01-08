@@ -28,7 +28,8 @@ class _ServerState:
         self.mem = 0
 
     def compute_next_wake_up(self, sleep_min: int, sleep_max: int):
-        d = random.randint(sleep_min, sleep_max)
+        rand = random.Random(time.time_ns())
+        d = rand.randint(sleep_min, sleep_max)
         self.next_wake_up = time.time() + float(d)
 
     def get_mem_usage(self, server_id, mem_logger: MemLogger):
