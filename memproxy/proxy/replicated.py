@@ -114,6 +114,7 @@ RandomFactory = Callable[[], RandFunc]
 
 
 def default_rand_func_factory() -> RandFunc:
+    """Returns default random with seed using time_ns()."""
     r = random.Random(time.time_ns())
     return r.randrange
 

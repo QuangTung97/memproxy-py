@@ -1,3 +1,6 @@
+"""
+CacheClient & Pipeline implementation as a proxy for multiple cache servers.
+"""
 from typing import Dict, List, Callable, Optional
 
 from memproxy import LeaseGetResult
@@ -7,7 +10,7 @@ from memproxy import Promise, LeaseGetResponse, LeaseSetResponse, DeleteResponse
 from .route import Selector, Route
 
 
-class _ClientConfig:
+class _ClientConfig:  # pylint: disable=too-few-public-methods
     __slots__ = ('clients', 'route')
 
     clients: Dict[int, CacheClient]
@@ -18,8 +21,9 @@ class _ClientConfig:
         self.route = route
 
 
-class _LeaseSetServer:
-    __slots__ = 'server_id'
+class _LeaseSetServer:  # pylint: disable=too-few-public-methods
+    """Store server id of cache key for lease set."""
+    __slots__ = ('server_id',)
 
     server_id: Optional[int]
 
@@ -27,8 +31,12 @@ class _LeaseSetServer:
         self.server_id = server_id
 
 
-class _PipelineConfig:
-    __slots__ = ('conf', 'sess', 'pipe_sess', 'selector', '_pipelines', '_set_servers', 'pipe', 'server_id')
+class _PipelineConfig:  # pylint: disable=too-many-instance-attributes
+    """Config object for pipeline actions."""
+    __slots__ = (
+        'conf', 'sess', 'pipe_sess', 'selector',
+        '_pipelines', '_set_servers', 'pipe', 'server_id',
+    )
 
     conf: _ClientConfig
     sess: Session
@@ -61,6 +69,7 @@ class _PipelineConfig:
         self.server_id = None
 
     def get_pipeline(self, server_id: int) -> Pipeline:
+        """New pipeline object if not already created."""
         pipe = self._pipelines.get(server_id)
         self.pipe = pipe
         if pipe:
@@ -77,6 +86,7 @@ class _PipelineConfig:
         return self._set_servers
 
     def add_set_server(self, key: str, server_id: int):
+        """Add the server id to the key for lease_set."""
         servers = self._get_servers()
         existing = servers.get(key)
         if existing and existing.server_id != server_id:
@@ -86,6 +96,7 @@ class _PipelineConfig:
         servers[key] = _LeaseSetServer(server_id=server_id)
 
     def get_set_server(self, key: str) -> Optional[int]:
+        """Find the server id for lease set."""
         servers = self._get_servers()
 
         state = servers.get(key)
@@ -194,7 +205,12 @@ class _DeleteState:
 
     resp: DeleteResponse
 
-    def __init__(self, conf: _PipelineConfig, fn_list: List[Promise[DeleteResponse]], servers: List[int]):
+    def __init__(
+            self,
+            conf: _PipelineConfig,
+            fn_list: List[Promise[DeleteResponse]],
+            servers: List[int],
+    ):
         self.conf = conf
         self.fn_list = fn_list
         self.servers = servers
@@ -261,7 +277,10 @@ class ProxyPipeline:
         server_id = self._conf.get_set_server(key)
         if not server_id:
             def lease_set_error() -> LeaseSetResponse:
-                return LeaseSetResponse(status=LeaseSetStatus.ERROR, error='proxy: can not do lease set')
+                return LeaseSetResponse(
+                    status=LeaseSetStatus.ERROR,
+                    error='proxy: can not do lease set',
+                )
 
             return lease_set_error
 

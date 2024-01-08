@@ -1,3 +1,6 @@
+"""
+Session implementation.
+"""
 from __future__ import annotations
 
 from typing import List, Callable, Optional
@@ -6,6 +9,8 @@ NextCallFunc = Callable[[], None]
 
 
 class Session:
+    """Session class is for deferring function calls."""
+
     __slots__ = 'next_calls', '_lower', '_higher', 'is_dirty'
 
     next_calls: List[NextCallFunc]
