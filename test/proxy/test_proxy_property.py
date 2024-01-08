@@ -88,7 +88,7 @@ class TestProxyPropertyBased(unittest.TestCase):
         filler = new_multi_get_filler(
             fill_func=self.get_users,
             get_key_func=UserTest.get_id,
-            default=UserTest(user_id=0, username='', counter=0),
+            default=lambda: UserTest(user_id=0, username='', counter=0),
         )
 
         return Item(
@@ -123,7 +123,7 @@ class TestProxyPropertyBased(unittest.TestCase):
         filler = new_multi_get_filler(
             fill_func=self.get_roles,
             get_key_func=RoleTest.get_key,
-            default=RoleTest(tenant='', code='', name=''),
+            default=lambda: RoleTest(tenant='', code='', name=''),
         )
 
         return Item(
