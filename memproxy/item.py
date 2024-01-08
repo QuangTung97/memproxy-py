@@ -4,7 +4,7 @@ import dataclasses
 import json
 import logging
 from dataclasses import dataclass
-from typing import Generic, TypeVar, Callable, Any, List, Optional, Dict, Type
+from typing import Generic, TypeVar, Callable, List, Optional, Dict, Type
 
 from .memproxy import LeaseGetResult
 from .memproxy import Promise, Pipeline, Session
@@ -250,13 +250,13 @@ class _MultiGetFunc(Generic[T, K]):
     _state: Optional[_MultiGetState[T, K]]
     _fill_func: MultiGetFillFunc
     _get_key_func: GetKeyFunc
-    _default: T
+    _default: Callable[[], T]
 
     def __init__(
             self,
             fill_func: Callable[[List[K]], List[T]],  # List[K] -> List[T]
             key_func: Callable[[T], K],  # T -> K
-            default: T,
+            default: Callable[[], T],
     ):
         self._state = None
         self._fill_func = fill_func
@@ -283,7 +283,7 @@ class _MultiGetFunc(Generic[T, K]):
                 state.completed = True
                 self._state = None
 
-            return state.result.get(key, self._default)
+            return state.result.get(key, self._default())
 
         return resp_func
 
@@ -292,7 +292,7 @@ class _MultiGetFunc(Generic[T, K]):
 def new_multi_get_filler(
         fill_func: Callable[[List[K]], List[T]],  # List[K] -> List[T]
         get_key_func: Callable[[T], K],  # T -> K
-        default: T,
+        default: Callable[[], T],  # () -> T
 ) -> Callable[[K], Promise[T]]:  # K -> () -> T
     fn = _MultiGetFunc(fill_func=fill_func, key_func=get_key_func, default=default)
     return fn.result_func

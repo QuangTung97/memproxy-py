@@ -5,7 +5,7 @@ import datetime
 import os
 import unittest
 from dataclasses import dataclass
-from typing import List, Union
+from typing import List, Union, Callable
 
 import redis
 
@@ -397,11 +397,11 @@ class TestItemBenchmark(unittest.TestCase):
 class TestMultiGetFiller(unittest.TestCase):
     fill_keys: List[List[int]]
     return_users: List[UserTest]
-    default: UserTest
+    default: Callable[[], UserTest]
 
     def setUp(self) -> None:
         self.fill_keys = []
-        self.default = UserTest(id=0, name='', age=0)
+        self.default = lambda: UserTest(id=0, name='', age=0)
 
     def new_filler(self) -> FillerFunc[int, UserTest]:
         return new_multi_get_filler(
@@ -529,7 +529,7 @@ class TestItemGetMulti(unittest.TestCase):
             filler=new_multi_get_filler(
                 fill_func=self.fill_multi,
                 get_key_func=UserTest.get_key,
-                default=UserTest(id=0, name='', age=0),
+                default=lambda: UserTest(id=0, name='', age=0),
             ),
             codec=new_json_codec(UserTest),
         )
