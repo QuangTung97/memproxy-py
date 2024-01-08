@@ -69,6 +69,7 @@ class LeaseGetResultFunc:
         self._fn = fn
 
     def result(self) -> LeaseGetResponse:
+        """Return lease get result."""
         return self._fn()
 
 
@@ -76,27 +77,37 @@ class Pipeline(Protocol):
     """A Cache Pipeline."""
 
     @abstractmethod
-    def lease_get(self, key: str) -> LeaseGetResult: pass
+    def lease_get(self, key: str) -> LeaseGetResult:
+        """Returns data or a cas (lease id) number when not found."""
 
     @abstractmethod
-    def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]: pass
+    def lease_set(self, key: str, cas: int, data: bytes) -> Promise[LeaseSetResponse]:
+        """Set data for the key when cas number is matched."""
 
     @abstractmethod
-    def delete(self, key: str) -> Promise[DeleteResponse]: pass
+    def delete(self, key: str) -> Promise[DeleteResponse]:
+        """Delete key from cache servers."""
 
     @abstractmethod
-    def lower_session(self) -> Session: pass
+    def lower_session(self) -> Session:
+        """Returns a session with lower priority."""
 
     @abstractmethod
-    def finish(self) -> None: pass
+    def finish(self) -> None:
+        """Do clean up, for example, flush pending operations, e.g. set, delete."""
 
     @abstractmethod
-    def __enter__(self): pass
+    def __enter__(self):
+        """Do clean up but using with."""
 
     @abstractmethod
-    def __exit__(self, exc_type, exc_val, exc_tb): pass
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Do clean up but using with."""
 
 
 class CacheClient(Protocol):
+    """Cache Client is a class to create Pipeline objects."""
+
     @abstractmethod
-    def pipeline(self, sess: Optional[Session] = None) -> Pipeline: pass
+    def pipeline(self, sess: Optional[Session] = None) -> Pipeline:
+        """Create a new pipeline, create a new Session if input sess is None."""
